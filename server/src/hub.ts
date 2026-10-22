@@ -1,10 +1,13 @@
 import type { WebSocket } from 'ws';
 import type { ServerMessage } from '../../shared/protocol.js';
 
+export type WatchTopic = 'metrics' | 'processes';
+
 export interface HubClient {
   id: number;
   ws: WebSocket;
   subs: Set<string>;
+  watching: Set<WatchTopic>;
 }
 
 /**
@@ -17,7 +20,7 @@ class Hub {
   private nextId = 1;
 
   add(ws: WebSocket): HubClient {
-    const client: HubClient = { id: this.nextId++, ws, subs: new Set() };
+    const client: HubClient = { id: this.nextId++, ws, subs: new Set(), watching: new Set() };
     this.clients.add(client);
     ws.on('close', () => this.clients.delete(client));
     return client;
@@ -39,6 +42,22 @@ class Hub {
       payload ??= JSON.stringify(msg);
       c.ws.send(payload);
     }
+  }
+
+  /** Opt-in streams (e.g. live metrics) only go to clients that asked for them. */
+  toWatchers(topic: WatchTopic, msg: ServerMessage) {
+    let payload: string | undefined;
+    for (const c of this.clients) {
+      if (!c.watching.has(topic) || c.ws.readyState !== 1) continue;
+      payload ??= JSON.stringify(msg);
+      c.ws.send(payload);
+    }
+  }
+
+  watcherCount(topic: WatchTopic) {
+    let n = 0;
+    for (const c of this.clients) if (c.watching.has(topic)) n++;
+    return n;
   }
 
   get size() {
