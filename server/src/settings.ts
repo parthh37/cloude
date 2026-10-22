@@ -1,7 +1,8 @@
-import type { AppSettings, SecretEntry } from '../../shared/protocol.js';
+import type { AppSettings, ClaudeCredentialKind, SecretEntry } from '../../shared/protocol.js';
 import { config } from './config.js';
 import { decrypt, encrypt } from './crypto.js';
 import { db, now } from './db.js';
+import { HttpError } from './util/paths.js';
 
 const DEFAULTS: AppSettings = {
   defaultModel: 'claude-opus-5-5',
@@ -11,27 +12,50 @@ const DEFAULTS: AppSettings = {
   enablePlaywright: true,
   mcpServers: {},
   idleTimeoutMinutes: 30,
+  budgetDailyUsd: null,
+  budgetMonthlyUsd: null,
+  budgetWarnPercent: 80,
+  budgetEnforce: false,
+  sessionIdleDays: 7,
 };
+
+/** Clamp numeric settings so a bad PUT can't, say, disable the idle sign-out with -1. */
+function sanitize(patch: Partial<AppSettings>): Partial<AppSettings> {
+  const out: Partial<AppSettings> = { ...patch };
+  const cap = (v: unknown) => (v === null || v === '' || v === undefined ? null : Math.max(0, Number(v)) || null);
+  if ('budgetDailyUsd' in patch) out.budgetDailyUsd = cap(patch.budgetDailyUsd);
+  if ('budgetMonthlyUsd' in patch) out.budgetMonthlyUsd = cap(patch.budgetMonthlyUsd);
+  if ('budgetWarnPercent' in patch) out.budgetWarnPercent = Math.min(100, Math.max(1, Math.round(Number(patch.budgetWarnPercent) || 80)));
+  if ('budgetEnforce' in patch) out.budgetEnforce = !!patch.budgetEnforce;
+  if ('sessionIdleDays' in patch) out.sessionIdleDays = Math.min(30, Math.max(1, Math.round(Number(patch.sessionIdleDays) || 7)));
+  return out;
+}
+
+let cache: AppSettings | null = null;
 
 export const settings = {
   get(): AppSettings {
+    if (cache) return cache;
     const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
     const stored: Record<string, unknown> = {};
-    for (const r of rows) stored[r.key] = JSON.parse(r.value);
-    return { ...DEFAULTS, ...stored } as AppSettings;
+    // The table also holds internal state (e.g. setup.completedAt); only user settings go out.
+    for (const r of rows) if (r.key in DEFAULTS) stored[r.key] = JSON.parse(r.value);
+    cache = { ...DEFAULTS, ...stored } as AppSettings;
+    return cache;
   },
   update(patch: Partial<AppSettings>): AppSettings {
     const stmt = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-    for (const [k, v] of Object.entries(patch)) {
+    for (const [k, v] of Object.entries(sanitize(patch))) {
       if (!(k in DEFAULTS)) continue;
       stmt.run(k, JSON.stringify(v));
     }
+    cache = null;
     return this.get();
   },
 };
 
 /** Keys with special meaning that the UI surfaces in the "Claude account" panel. */
-export const AUTH_SECRET_KEYS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'] as const;
+export const AUTH_SECRET_KEYS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'] as const satisfies readonly ClaudeCredentialKind[];
 
 const SECRET_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -71,6 +95,18 @@ export const secrets = {
   },
 };
 
+/**
+ * Save the credential sessions should use and drop the other kind, so switching
+ * from an API key to a subscription (or back) actually takes effect — Claude Code
+ * prefers ANTHROPIC_API_KEY whenever both are set.
+ */
+export function setClaudeCredential(kind: ClaudeCredentialKind, value: string) {
+  const v = value.trim();
+  if (!v || /\s/.test(v)) throw new HttpError(400, "That doesn't look like a valid key or token");
+  secrets.set(null, kind, v);
+  for (const other of AUTH_SECRET_KEYS) if (other !== kind) secrets.delete(null, other);
+}
+
 function safeDecrypt(blob: string) {
   try {
     return decrypt(blob);
@@ -90,7 +126,7 @@ export function buildEnv(projectId: string | null, extra: Record<string, string>
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined) continue;
     // Never leak Cloude's own credentials into user code.
-    if (k === 'CLOUDE_ADMIN_PASSWORD' || k === 'CLOUDE_SECRET') continue;
+    if (k === 'CLOUDE_ADMIN_PASSWORD' || k === 'CLOUDE_SECRET' || k === 'CLOUDE_SETUP_TOKEN') continue;
     base[k] = v;
   }
   const merged: Record<string, string> = {

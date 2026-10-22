@@ -1,20 +1,66 @@
 import crypto from 'node:crypto';
+import { promisify } from 'node:util';
 import { config } from './config.js';
 
 // ---- Passwords (scrypt, no native deps) -------------------------------------
 
-export function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 });
-  return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
+const scrypt = promisify(crypto.scrypt) as (pw: string, salt: Buffer, len: number, opts: crypto.ScryptOptions) => Promise<Buffer>;
+
+/** OWASP's 32 MiB scrypt profile. Runs on the libuv pool, so logins don't stall the event loop. */
+const SCRYPT = { N: 2 ** 15, r: 8, p: 3 };
+
+interface ParsedHash {
+  N: number;
+  r: number;
+  p: number;
+  salt: Buffer;
+  hash: Buffer;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
-  const [scheme, saltHex, hashHex] = stored.split('$');
-  if (scheme !== 'scrypt' || !saltHex || !hashHex) return false;
-  const expected = Buffer.from(hashHex, 'hex');
-  const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length, { N: 16384, r: 8, p: 1 });
-  return crypto.timingSafeEqual(expected, actual);
+function parseHash(stored: string): ParsedHash | null {
+  const parts = stored.split('$');
+  // v1 format "scrypt$salt$hash" used fixed N=16384,r=8,p=1.
+  if (parts[0] === 'scrypt' && parts.length === 3) {
+    return { N: 16384, r: 8, p: 1, salt: Buffer.from(parts[1]!, 'hex'), hash: Buffer.from(parts[2]!, 'hex') };
+  }
+  if (parts[0] === 'scrypt' && parts.length === 6) {
+    const [N, r, p] = parts.slice(1, 4).map(Number);
+    if (!N || !r || !p) return null;
+    return { N, r, p, salt: Buffer.from(parts[4]!, 'hex'), hash: Buffer.from(parts[5]!, 'hex') };
+  }
+  return null;
+}
+
+const derive = (password: string, h: Pick<ParsedHash, 'N' | 'r' | 'p' | 'salt'>, len: number) =>
+  scrypt(password, h.salt, len, { N: h.N, r: h.r, p: h.p, maxmem: 256 * h.N * h.r });
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16);
+  const hash = await derive(password.normalize('NFKC'), { ...SCRYPT, salt }, 64);
+  return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const h = parseHash(stored);
+  if (!h || h.hash.length === 0) return false;
+  // v1 hashes were made without NFKC normalisation; keep verifying them byte-for-byte.
+  const input = stored.split('$').length === 3 ? password : password.normalize('NFKC');
+  return crypto.timingSafeEqual(h.hash, await derive(input, h, h.hash.length));
+}
+
+/** True when a stored hash uses weaker parameters than today's, so it should be upgraded on next login. */
+export function needsRehash(stored: string): boolean {
+  const h = parseHash(stored);
+  return !h || h.N < SCRYPT.N || h.r < SCRYPT.r || h.p < SCRYPT.p || stored.split('$').length !== 6;
+}
+
+export const sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
+
+/** Constant-time string comparison (lengths may differ). */
+export function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
 }
 
 // ---- Signed, expiring tokens (used for preview-auth handoff) ----------------

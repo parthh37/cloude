@@ -30,10 +30,13 @@ import { bus } from '../bus.js';
 import { config, playwrightMcp } from '../config.js';
 import { db, now } from '../db.js';
 import { hub } from '../hub.js';
+import { applyInfra } from '../infra/session-hook.js';
 import { projects } from '../projects.js';
 import { buildEnv, settings } from '../settings.js';
+import { assertWithinBudget, ingestRateLimitEvent, ingestUsageResponse, recordTurn } from '../usage.js';
 import { AsyncQueue } from '../util/async-queue.js';
 import { HttpError } from '../util/paths.js';
+import { ActivityTracker } from './activity.js';
 import { worktrees } from '../worktrees.js';
 import { CLOUDE_READONLY_TOOLS, createCloudeMcp } from './cloude-mcp.js';
 import { guardHooks } from './guard.js';
@@ -54,6 +57,7 @@ interface SessionRow {
   last_seq: number;
   last_error: string | null;
   allowed_tools: string;
+  usage_snapshot: string;
   created_at: number;
   updated_at: number;
 }
@@ -114,6 +118,11 @@ function supportsAdaptiveThinking(model: string) {
   return !/haiku-4|sonnet-4-5|opus-4-[015]|claude-3/.test(model);
 }
 
+let lastPlanUsageAt = 0;
+
+/** Activity is broadcast to every browser, so a busy session sends at most one update per this interval. */
+const ACTIVITY_MIN_INTERVAL_MS = 1000;
+
 interface Pending {
   req: PermissionRequest;
   resolve: (r: PermissionResponse) => void;
@@ -124,9 +133,15 @@ export class AgentSession {
   private input: AsyncQueue<SDKUserMessage> | null = null;
   private abort: AbortController | null = null;
   private pending = new Map<string, Pending>();
+  private activity = new ActivityTracker(
+    () => this.info.cwd,
+    () => this.activityChanged(),
+  );
+  private activityTimer: NodeJS.Timeout | null = null;
+  private activitySentAt = 0;
+  private disposed = false;
   private ownUuids = new Set<string>();
   private idleTimer: NodeJS.Timeout | null = null;
-  private costBase = 0;
   private authProblem = false;
   private resumedRun = false;
   private stderrTail: string[] = [];
@@ -162,6 +177,7 @@ export class AgentSession {
       status: r.status,
       started: !!r.started,
       alive: this.alive,
+      activity: this.activity.current,
       archived: !!r.archived,
       totalCostUsd: r.total_cost_usd,
       lastSeq: r.last_seq,
@@ -226,6 +242,7 @@ export class AgentSession {
 
   send(text: string, images: ImageAttachment[] = []): void {
     if (!text.trim() && images.length === 0) throw new HttpError(400, 'Message is empty');
+    assertWithinBudget();
     if (this.idleTimer) clearTimeout(this.idleTimer);
     const uuid = crypto.randomUUID();
     this.record('user', { text, uuid, images: images.map((i) => ({ mediaType: i.mediaType, name: i.name, data: i.data })) });
@@ -341,12 +358,12 @@ export class AgentSession {
         if (this.stderrTail.length > 50) this.stderrTail.shift();
       },
     };
+    applyInfra(options, this.row); // model routing, sandboxes, semantic search — see server/src/infra
 
     const q = query({ prompt: input, options });
     this.q = q;
     this.input = input;
     this.abort = abort;
-    this.costBase = this.row.total_cost_usd;
     this.resumedRun = !!this.row.started;
     this.stderrTail = [];
     this.save({ status: 'starting', last_error: null });
@@ -377,6 +394,7 @@ export class AgentSession {
         this.abort = null;
       }
       for (const id of [...this.pending.keys()]) this.settle(id, { decision: 'deny', message: 'Session ended' }, true);
+      this.activity.clear();
       if (this.row.status !== 'error') this.save({ status: 'idle' });
       else hub.broadcast({ t: 'session', session: this.toJSON() });
     }
@@ -386,7 +404,22 @@ export class AgentSession {
     hub.toSession(this.id, { t: 'live', sessionId: this.id, data });
   }
 
+  /** Leading edge goes out at once; anything else within the interval is coalesced into one trailing update. */
+  private activityChanged() {
+    if (this.activityTimer || this.disposed) return;
+    const flush = () => {
+      this.activityTimer = null;
+      if (this.disposed) return;
+      this.activitySentAt = Date.now();
+      hub.broadcast({ t: 'session', session: this.toJSON() });
+    };
+    const wait = this.activitySentAt + ACTIVITY_MIN_INTERVAL_MS - Date.now();
+    if (wait <= 0) flush();
+    else this.activityTimer = setTimeout(flush, wait);
+  }
+
   private handle(msg: SDKMessage) {
+    this.activity.observe(msg);
     switch (msg.type) {
       case 'stream_event':
       case 'tool_progress':
@@ -450,19 +483,42 @@ export class AgentSession {
           hub.broadcast({ t: 'notify', level: 'error', title: 'Claude is not authenticated', body: 'Open Settings → Claude account', sessionId: this.id });
         }
         this.authProblem = false;
-        // total_cost_usd is cumulative for the process; add it to what earlier processes spent.
+        // modelUsage is a running total (and may already include a resumed transcript's
+        // history), so the ledger books only the delta since the last snapshot.
+        const { snapshot, costDelta } = recordTurn(this.id, this.row.project_id, this.row.usage_snapshot, msg.modelUsage);
         this.save({
           status: this.pending.size ? 'awaiting_input' : 'idle',
-          total_cost_usd: this.costBase + (msg.total_cost_usd ?? 0),
+          total_cost_usd: this.row.total_cost_usd + costDelta,
+          usage_snapshot: snapshot,
           last_error: lastError,
         });
+        this.refreshPlanUsage();
         this.scheduleIdleShutdown();
         return;
       }
 
+      case 'conversation_reset':
+        // /clear (and friends) restart the SDK's running totals at zero; so does our baseline.
+        this.save({ usage_snapshot: '{}' }, false);
+        this.live(msg);
+        return;
+
+      case 'rate_limit_event':
+        ingestRateLimitEvent(msg.rate_limit_info);
+        this.live(msg);
+        return;
+
       default:
         this.live(msg);
     }
+  }
+
+  /** Best-effort plan-limit refresh via the SDK's experimental /usage request (at most once a minute, server-wide). */
+  private refreshPlanUsage() {
+    const q = this.q as (Query & { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (o: { skipBehaviors: boolean }) => Promise<unknown> }) | null;
+    if (!q?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET || Date.now() - lastPlanUsageAt < 60_000) return;
+    lastPlanUsageAt = Date.now();
+    q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }).then(ingestUsageResponse, () => {});
   }
 
   /** Free memory for sessions nobody is using; they resume transparently. */
@@ -578,6 +634,8 @@ export class AgentSession {
   };
 
   async destroy() {
+    this.disposed = true; // a trailing activity update must not resurrect a deleted session in the browsers
+    if (this.activityTimer) clearTimeout(this.activityTimer);
     this.stop();
     const project = projects.get(this.row.project_id);
     if (this.row.started && project) await deleteClaudeTranscript(this.id, { dir: this.cwd(project.path) }).catch(() => {});
@@ -688,6 +746,16 @@ class SessionManager {
 
   stopAll() {
     for (const s of this.sessions.values()) s.stop();
+  }
+
+  /** Every open prompt, by session. Only in-memory sessions can have one (prompts die with their process). */
+  pendingSnapshot(): Record<string, PermissionRequest[]> {
+    const out: Record<string, PermissionRequest[]> = {};
+    for (const s of this.sessions.values()) {
+      const requests = s.pendingRequests();
+      if (requests.length) out[s.id] = requests;
+    }
+    return out;
   }
 }
 

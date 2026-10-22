@@ -71,7 +71,7 @@ function UserBubble({ item, sessionId }: { item: Extract<TimelineItem, { kind: '
             )}
           </div>
         )}
-        {item.text && <div className="rounded-2xl rounded-br-md bg-ink px-3.5 py-2 text-[15px] whitespace-pre-wrap text-ground">{item.text}</div>}
+        {item.text && <div className="rounded-xl rounded-br-sm border border-sky/30 bg-sky-soft px-3.5 py-2 text-[15px] whitespace-pre-wrap text-ink">{item.text}</div>}
         {item.uuid && (
           <button
             aria-label="Message actions"

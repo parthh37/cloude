@@ -26,6 +26,11 @@ interface Term {
 class TerminalManager {
   private terms = new Map<string, Term>();
 
+  /** Shell PIDs of live terminals (for resource monitoring). */
+  pids(): number[] {
+    return [...this.terms.values()].filter((t) => t.info.alive).map((t) => t.proc.pid);
+  }
+
   list(projectId?: string): TerminalInfo[] {
     return [...this.terms.values()].map((t) => t.info).filter((t) => !projectId || t.projectId === projectId);
   }

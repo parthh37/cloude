@@ -32,10 +32,16 @@ Cloude runs Claude Code agents on a server you control and gives you a web workb
 | **Every Claude Code feature** | Built on the official Agent SDK with the full Claude Code preset: all built-in tools, subagents, skills, slash commands, `CLAUDE.md`, `.claude/settings.json`, project `.mcp.json`, plan mode, permission modes, model and effort switching, compaction, file checkpoints (rewind). There's also a one-click **Claude CLI** terminal for anything interactive. |
 | **Steer from anywhere** | Tool approvals with diffs, multiple-choice questions, plan review ("approve and auto-edit"), and MCP sign-in forms all appear as cards in the browser, with notifications when Claude needs you. |
 | **Build & test** | Web terminal, file editor, Git panel. Claude starts dev servers as *services* (with logs) and verifies UIs itself in a headless browser via Playwright. |
+| **Sandboxes** | Disposable machines Claude controls completely (root, any package, databases, systemd, Docker-in-Docker, other distros) for tests that need a real OS. Container isolation by default; gVisor, Sysbox full-OS and Kata microVMs light up when installed. Free host ports, private per-project networks and a private copy of the project, so nothing collides. |
+| **Control center** | `/infra`: pick the provider and model for each kind of task (Anthropic, Bedrock, Vertex, Foundry, any Anthropic-compatible gateway, Ollama), manage sandboxes, an automatic storage cleaner that frees space once work is done, and free embeddings that configure themselves for semantic code search. |
 | **Preview** | Every port gets a private, login-protected URL: `https://p-3000.your.domain`. HMR WebSockets work. |
 | **Publish & deploy** | Make an app public at `https://myapp.your.domain` or a custom domain. Deploy as a process, a Dockerfile, or a static folder, with auto-restart that survives reboots. Instant `trycloudflare.com` tunnels are also available. |
 | **Dependencies** | The image ships Node/pnpm/bun, Python/uv, Go, Rust, Java, .NET 8/9/10, C/C++ (gcc, clang/LLVM, cmake, ninja, gdb, valgrind), Docker CLI, gh, mise, and Chromium + Firefox + WebKit. Claude has `sudo apt-get` for anything else. |
 | **Safety rails** | Publishing, deploying, and tunnels *always* ask, even in full-access mode. A server guard blocks agents from touching Cloude's own database and keys. Previewed apps can never see your Cloude session. |
+| **Ops console** | A dark "glass cockpit" UI: an annunciator status bar that lights up when a session needs you, a ⌘K palette to jump anywhere, and a Day theme for sunlight. |
+| **Usage** | Spend and tokens booked per turn and model, with charts by day/hour, top sessions and projects, Claude Pro/Max plan-limit meters, and daily/monthly budgets that warn or pause new messages. |
+| **Monitor** | Live CPU, memory, disk, network and load for the server, plus how much each group of Cloude processes uses (agents, terminals, every running app). |
+| **Secure sign-in** | Authenticator-app 2FA with recovery codes, passkeys (Face ID / Touch ID / security keys), a list of signed-in devices you can sign out remotely, automatic sign-out when idle, lockout after repeated failures, and a security log. |
 | **Conflict-free parallel work** | Each session can run in its own git worktree and branch. Its services are namespaced, and Files/Git/Terminal follow it there. **Review & land** shows the diff against base, syncs base in (conflicts stay in the worktree for Claude to fix), then merges, squashes, or opens a PR. |
 | **Kanban board** | Plan with Claude (it breaks a goal into cards), then run cards in parallel, each with its own agent and worktree. Cards move to Review when the agent finishes and to Done when merged. |
 | **Other agent CLIs** | Codex, Gemini, Qwen Code, OpenCode, Copilot, Aider, Cursor, Goose, and local Llama/Qwen through Ollama, plus any CLI you add. Open them in a terminal or assign them to board cards. |
@@ -56,26 +62,30 @@ No domain? Use `203.0.113.7.sslip.io`. Wildcard DNS works out of the box.
 
 ```bash
 git clone <this repo> cloude && cd cloude
-sudo ./deploy/install.sh cloude.example.com you@example.com
+sudo ./deploy/install.sh cloude.example.com you@example.com   # or no arguments to use <ip>.sslip.io
 ```
 
-The installer sets up Docker, a firewall, and `.env` with a generated admin password, then starts Cloude and Caddy. To do it by hand:
+The installer sets up Docker and a firewall, starts Cloude and Caddy, and prints a **setup link**. Everything after that happens in the browser.
+
+### First-run setup (in the browser)
+
+Open the link (`https://cloude.example.com/setup#code=…`) and the wizard walks you through:
+
+1. **Account.** Create the username and password you'll sign in with. The link carries a one-time setup code, so only someone who can see the install output can claim the server.
+2. **Claude.** Click **Sign in with Claude** to use a Pro/Max subscription: approve on claude.com and paste back the code it shows. Or paste an Anthropic API key.
+3. **Workspace.** Pick the default model and permission mode, and optionally add your Git name/email and a GitHub token.
+4. **Finish.** Review the address and preview mode, and turn on notifications.
+
+Lost the link? It's in `docker compose logs cloude`, and the code is also saved as `setup-token.txt` in Cloude's data directory. To install by hand:
 
 ```bash
-cp .env.example .env    # set CLOUDE_DOMAIN, CLOUDE_ADMIN_PASSWORD, ACME_EMAIL
+cp .env.example .env    # set CLOUDE_DOMAIN, ACME_EMAIL, CLOUDE_SETUP_TOKEN
 docker compose up -d --build
 ```
 
-Then open `https://cloude.example.com`, sign in, and connect Claude (next section).
+For scripted installs, set `CLOUDE_ADMIN_PASSWORD` to create the account up front. The wizard then starts at the Claude step after you sign in.
 
-### Connect your Claude account
-
-Open **Settings → Claude account** and choose one of these:
-
-- **Claude subscription (Pro/Max):** open any project's **Terminal**, run `claude setup-token`, sign in through the link it prints, and paste the token into Settings.
-- **API key:** paste an Anthropic API key.
-
-Credentials are encrypted at rest (AES-256-GCM) and injected into sessions as environment variables.
+Claude credentials can be changed later in **Settings → Claude account**. They're encrypted at rest (AES-256-GCM) and injected into sessions as environment variables.
 
 ## Using it
 
@@ -83,6 +93,8 @@ Credentials are encrypted at rest (AES-256-GCM) and injected into sessions as en
 2. **New session:** ask for anything, e.g. *"Build a todo app with Vite + React, start it, and test adding an item in the browser."*
 3. Claude starts the app as a **service**. Open **Apps** to see logs and an inline preview with a phone/desktop toggle.
 4. When it's ready, say *"deploy this publicly as todo"*. You'll get an approval card, and after you approve it's live at `https://todo.your.domain`.
+
+The **control center** (`/infra`, linked from Settings → Server) holds the rest. *Model routing* maps task kinds to a provider and model; start a message with a tag like `#debug` or `#plan` to pick the route, or set it per session there. *Sandboxes* lists every machine Claude created, with a console, root shell, snapshots and preview links. The *Storage* cleaner stops idle sandboxes and reclaims finished ones, old snapshots and leftovers; host-wide Docker pruning and build artifacts are opt-in. *Embeddings* shows the free model that was picked automatically (Ollama if it's running, otherwise a small local model, so your code stays on the server).
 
 Permission modes, set per session from the header pill:
 
@@ -114,12 +126,18 @@ Open the **Desktop** panel and press *Start*. The server runs `Xvfb` + `fluxbox`
 
 ## Security
 
-Cloude gives whoever logs in full control of the server. Treat the admin password like a root password.
+Cloude gives whoever logs in full control of the server. Treat the admin password like a root password, and turn on two-factor authentication in **Security** right after the first sign-in.
+
+- **Sign-in:** passwords are hashed with scrypt (OWASP parameters, upgraded on the next login). A second step is required once you add an authenticator app or a passkey; recovery codes cover a lost phone. Changing 2FA, passkeys, recovery codes or the password asks for the password again.
+- **Sessions:** the login cookie is `HttpOnly`, `SameSite=Lax`, and `__Host-` prefixed over HTTPS. The database stores only a SHA-256 of each token. Logins expire after 30 days, or sooner when idle (7 days by default). Signing a device out also closes its live connections and its app-preview access.
+- **Brute force:** failed passwords, codes, and passkeys are counted per IP and per account, and survive restarts. Every sign-in, failure, lockout, and credential change is written to the security log.
+- **Headers:** the UI is served with a strict Content-Security-Policy, `frame-ancestors 'none'`, `nosniff`, and HSTS over HTTPS.
 
 - **Firewall:** apps that Claude starts listen on the host network, so only ports **22, 80, and 443** should be reachable from the internet. `install.sh` configures `ufw` this way. Without a firewall, a dev server on `:3000` would be public, bypassing preview authentication.
 - **Preview isolation:** previews run on sibling subdomains and are treated as untrusted. They never receive Cloude's cookies: access uses a signed, host-bound handoff token, and the proxy strips Cloude cookies before forwarding. The API rejects cross-origin writes and WebSocket upgrades. Without a wildcard domain, previews fall back to `/preview/<port>/` on Cloude's own origin. They're served with a CSP `sandbox` there so they can't reach the API, but that also means apps can't use cookies or `localStorage` in path mode.
 - **Proxy trust:** `X-Forwarded-*` headers are only honoured from loopback (Caddy), so clients can't spoof their IP past the login rate limit.
 - **Agent guard:** a `PreToolUse` hook (active in every permission mode) blocks writes to Cloude's data directory. Add your own command rules in `server/src/agent/guard.ts`.
+- **Sandboxes & routing:** sandbox tools run without prompts because they act inside disposable containers (never `--privileged`, `no-new-privileges`, CPU/memory/PID limits). The two ways back into the real project, a read-write live mount and copying files out, always ask, even in Full access. When a task routes to a non-Anthropic provider, your Anthropic API key and subscription token are removed from that session's environment.
 - **sudo:** enabled in the image so Claude can install system packages. Build with `--build-arg ENABLE_SUDO=false` to turn it off.
 - **Docker socket:** mounted so Claude can build and run containers, which is root-equivalent on the host. Remove the mount in `docker-compose.yml` if you don't need Docker deployments.
 
@@ -127,11 +145,13 @@ Cloude gives whoever logs in full control of the server. Treat the admin passwor
 
 ```bash
 npm install
-npm run dev -w server     # API on :8787 (prints the admin password on first run)
+npm run dev -w server     # API on :8787 (prints the setup code on first run)
 npm run dev -w web        # UI on :5173, proxies /api and /ws to :8787
 ```
 
-On macOS, your `claude` login lives in the Keychain, which the SDK's bundled binary can't read. Either set `CLOUDE_CLAUDE_PATH=$(which claude)` (after `claude login`), or add a token or API key in Settings.
+Open `http://localhost:5173/setup` and paste the setup code from the server output.
+
+On macOS, your `claude` login lives in the Keychain, which the SDK's bundled binary can't read. Use **Sign in with Claude** in the wizard or Settings, or set `CLOUDE_CLAUDE_PATH=$(which claude)` (after `claude login`).
 
 To try subdomain previews locally (browsers resolve `*.localhost` to loopback):
 
@@ -145,7 +165,9 @@ CLOUDE_PUBLIC_URL=http://cloude.localhost:8787 CLOUDE_PREVIEW_DOMAIN=cloude.loca
 |---|---|---|
 | `CLOUDE_PUBLIC_URL` | `http://localhost:$PORT` | External URL of the web app |
 | `CLOUDE_PREVIEW_DOMAIN` | unset | Wildcard base for `p-<port>.` / `<app>.` hosts. When unset, uses `/preview/<port>/` paths |
-| `CLOUDE_ADMIN_USER` / `CLOUDE_ADMIN_PASSWORD` | `admin` / generated | First-run login |
+| `CLOUDE_SETUP_TOKEN` | generated | One-time code that claims a fresh server in the setup wizard |
+| `CLOUDE_ADMIN_USER` / `CLOUDE_ADMIN_PASSWORD` | `admin` / unset | Create the account from env instead of the wizard. With `CLOUDE_RESET_ADMIN_PASSWORD=true`, resets a forgotten password on boot and signs out every device |
+| `CLOUDE_RESET_ADMIN_2FA` | unset | `true` removes the admin's authenticator, passkeys and recovery codes on boot (last resort if all are lost). Unset it afterwards |
 | `CLOUDE_DATA_DIR` | `~/.cloude` | Database, secret key, workspaces |
 | `CLOUDE_WORKSPACES_DIR` | `$DATA/workspaces` | Where new projects are created |
 | `CLOUDE_CLAUDE_PATH` | bundled | Claude Code executable for sessions |
@@ -157,6 +179,9 @@ CLOUDE_PUBLIC_URL=http://cloude.localhost:8787 CLOUDE_PREVIEW_DOMAIN=cloude.loca
 ```
 shared/protocol.ts          types shared by server and web (REST + WebSocket contract)
 server/src/
+  auth.ts, auth/            sign-in sessions, TOTP, passkeys, lockout, security log
+  usage.ts                  usage ledger (per-turn deltas), plan limits, budgets
+  monitor.ts                server health sampler and per-process breakdown
   worktrees.ts              per-session git worktrees: create, status, sync, merge/squash, PR, remove
   board.ts                  Kanban cards that run agents and follow their sessions/terminals
   agents/clis.ts            agent CLI registry (presets + custom), install, headless commands
@@ -173,10 +198,13 @@ server/src/
   services/                 process manager, ports, routes, Cloudflare tunnels
   proxy/preview-proxy.ts    host-based preview/app proxy + auth handoff
   terminal/terminals.ts     persistent PTYs
+  setup.ts                  first-run claim (setup code) and wizard state
+  claude-login.ts           "Sign in with Claude": drives `claude setup-token` in a PTY
   routes/                   REST API
 web/src/
+  components/               shell (rail, annunciator, ⌘K palette), HUD panels and charts
   workspace/                chat timeline, tool cards, approvals, files, terminal, apps, git
-  pages/                    login, projects, workspace, settings
+  pages/                    setup wizard, login, ops, usage, monitor, security, workspace, settings
 deploy/                     Caddyfile, entrypoint, install script
 ```
 
