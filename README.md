@@ -36,6 +36,10 @@ Cloude runs Claude Code agents on a server you control and gives you a web workb
 | **Publish & deploy** | Make an app public at `https://myapp.your.domain` or a custom domain. Deploy as a process, a Dockerfile, or a static folder, with auto-restart that survives reboots. Instant `trycloudflare.com` tunnels are also available. |
 | **Dependencies** | The image ships Node/pnpm/bun, Python/uv, Go, Rust, Java, Docker CLI, gh, mise, and Chromium. Claude has `sudo apt-get` for anything else. |
 | **Safety rails** | Publishing, deploying, and tunnels *always* ask, even in full-access mode. A server guard blocks agents from touching Cloude's own database and keys. Previewed apps can never see your Cloude session. |
+| **Ops console** | A dark "glass cockpit" UI: an annunciator status bar that lights up when a session needs you, a ⌘K palette to jump anywhere, and a Day theme for sunlight. |
+| **Usage** | Spend and tokens booked per turn and model, with charts by day/hour, top sessions and projects, Claude Pro/Max plan-limit meters, and daily/monthly budgets that warn or pause new messages. |
+| **Monitor** | Live CPU, memory, disk, network and load for the server, plus how much each group of Cloude processes uses (agents, terminals, every running app). |
+| **Secure sign-in** | Authenticator-app 2FA with recovery codes, passkeys (Face ID / Touch ID / security keys), a list of signed-in devices you can sign out remotely, automatic sign-out when idle, lockout after repeated failures, and a security log. |
 
 ## Deploy (Docker, recommended)
 
@@ -90,7 +94,12 @@ Permission modes, set per session from the header pill:
 
 ## Security
 
-Cloude gives whoever logs in full control of the server. Treat the admin password like a root password.
+Cloude gives whoever logs in full control of the server. Treat the admin password like a root password, and turn on two-factor authentication in **Security** right after the first sign-in.
+
+- **Sign-in:** passwords are hashed with scrypt (OWASP parameters, upgraded on the next login). A second step is required once you add an authenticator app or a passkey; recovery codes cover a lost phone. Changing 2FA, passkeys, recovery codes or the password asks for the password again.
+- **Sessions:** the login cookie is `HttpOnly`, `SameSite=Lax`, and `__Host-` prefixed over HTTPS. The database stores only a SHA-256 of each token. Logins expire after 30 days, or sooner when idle (7 days by default). Signing a device out also closes its live connections and its app-preview access.
+- **Brute force:** failed passwords, codes, and passkeys are counted per IP and per account, and survive restarts. Every sign-in, failure, lockout, and credential change is written to the security log.
+- **Headers:** the UI is served with a strict Content-Security-Policy, `frame-ancestors 'none'`, `nosniff`, and HSTS over HTTPS.
 
 - **Firewall:** apps that Claude starts listen on the host network, so only ports **22, 80, and 443** should be reachable from the internet. `install.sh` configures `ufw` this way. Without a firewall, a dev server on `:3000` would be public, bypassing preview authentication.
 - **Preview isolation:** previews run on sibling subdomains and are treated as untrusted. They never receive Cloude's cookies: access uses a signed, host-bound handoff token, and the proxy strips Cloude cookies before forwarding. The API rejects cross-origin writes and WebSocket upgrades. Without a wildcard domain, previews fall back to `/preview/<port>/` on Cloude's own origin. They're served with a CSP `sandbox` there so they can't reach the API, but that also means apps can't use cookies or `localStorage` in path mode.
@@ -121,7 +130,8 @@ CLOUDE_PUBLIC_URL=http://cloude.localhost:8787 CLOUDE_PREVIEW_DOMAIN=cloude.loca
 |---|---|---|
 | `CLOUDE_PUBLIC_URL` | `http://localhost:$PORT` | External URL of the web app |
 | `CLOUDE_PREVIEW_DOMAIN` | unset | Wildcard base for `p-<port>.` / `<app>.` hosts. When unset, uses `/preview/<port>/` paths |
-| `CLOUDE_ADMIN_USER` / `CLOUDE_ADMIN_PASSWORD` | `admin` / generated | First-run login |
+| `CLOUDE_ADMIN_USER` / `CLOUDE_ADMIN_PASSWORD` | `admin` / generated | First-run login. With `CLOUDE_RESET_ADMIN_PASSWORD=true`, resets a forgotten password on boot and signs out every device |
+| `CLOUDE_RESET_ADMIN_2FA` | unset | `true` removes the admin's authenticator, passkeys and recovery codes on boot (last resort if all are lost). Unset it afterwards |
 | `CLOUDE_DATA_DIR` | `~/.cloude` | Database, secret key, workspaces |
 | `CLOUDE_WORKSPACES_DIR` | `$DATA/workspaces` | Where new projects are created |
 | `CLOUDE_CLAUDE_PATH` | bundled | Claude Code executable for sessions |
@@ -133,6 +143,9 @@ CLOUDE_PUBLIC_URL=http://cloude.localhost:8787 CLOUDE_PREVIEW_DOMAIN=cloude.loca
 ```
 shared/protocol.ts          types shared by server and web (REST + WebSocket contract)
 server/src/
+  auth.ts, auth/            sign-in sessions, TOTP, passkeys, lockout, security log
+  usage.ts                  usage ledger (per-turn deltas), plan limits, budgets
+  monitor.ts                server health sampler and per-process breakdown
   agent/session.ts          Agent SDK runtime: sessions, streaming, permissions, resume
   agent/cloude-mcp.ts       MCP tools Claude uses to run, publish and deploy apps
   agent/guard.ts            PreToolUse server-protection hook
@@ -142,8 +155,9 @@ server/src/
   terminal/terminals.ts     persistent PTYs
   routes/                   REST API
 web/src/
+  components/               shell (rail, annunciator, ⌘K palette), HUD panels and charts
   workspace/                chat timeline, tool cards, approvals, files, terminal, apps, git
-  pages/                    login, projects, workspace, settings
+  pages/                    login, ops, usage, monitor, security, workspace, settings
 deploy/                     Caddyfile, entrypoint, install script
 ```
 

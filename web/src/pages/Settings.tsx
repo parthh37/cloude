@@ -1,21 +1,52 @@
-import { CheckCircle2, KeyRound, Trash2, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, KeyRound, Moon, Sun, SunMoon, Trash2, TriangleAlert } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AppSettings, EffortLevel, PermissionMode, SecretEntry, SystemStatus } from '../../../shared/protocol';
 import { Badge, Button, Field, Input, Select, Textarea, Toggle } from '../components/ui';
 import { api, ApiError, q } from '../lib/api';
 import { MODE_LABEL, bytes, timeAgo } from '../lib/format';
 import { toast, useStore } from '../lib/store';
-import { TopBar } from './Dashboard';
+import { themePref, setThemePref, type ThemePref } from '../lib/theme';
+import { PageHeader, Panel } from '../components/hud';
+import { Page, Shell } from '../components/Shell';
 
 const err = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
 
 function Section({ id, title, description, children }: { id?: string; title: string; description?: ReactNode; children: ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-20 rounded-2xl border border-line bg-surface p-5 shadow-cloud">
-      <h2 className="font-display text-lg font-semibold">{title}</h2>
-      {description && <p className="mt-1 text-sm text-ink-2">{description}</p>}
-      <div className="mt-4">{children}</div>
-    </section>
+    <Panel id={id} label={title}>
+      {description && <p className="mb-4 text-sm text-ink-2">{description}</p>}
+      {children}
+    </Panel>
+  );
+}
+
+function Appearance() {
+  const [pref, setPref] = useState<ThemePref>(themePref());
+  const options: { value: ThemePref; label: string; hint: string; icon: typeof Moon }[] = [
+    { value: 'night', label: 'Night', hint: 'Dark instrument panel', icon: Moon },
+    { value: 'day', label: 'Day', hint: 'Light, for sunlight', icon: Sun },
+    { value: 'auto', label: 'Auto', hint: 'Follow this device', icon: SunMoon },
+  ];
+  return (
+    <Section title="Appearance" description="Saved in this browser.">
+      <div className="grid grid-cols-3 gap-2">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            onClick={() => {
+              setThemePref(o.value);
+              setPref(o.value);
+            }}
+            aria-pressed={pref === o.value}
+            className={`flex flex-col items-start gap-1 rounded-md border px-3 py-2.5 text-left ${pref === o.value ? 'border-sky bg-sky-soft' : 'border-line hover:border-line-strong'}`}
+          >
+            <o.icon className={`size-4 ${pref === o.value ? 'text-sky' : 'text-ink-3'}`} />
+            <span className="text-sm font-medium">{o.label}</span>
+            <span className="text-xs text-ink-3">{o.hint}</span>
+          </button>
+        ))}
+      </div>
+    </Section>
   );
 }
 
@@ -47,7 +78,7 @@ function ClaudeAccount({ status, onChange }: { status: SystemStatus | null; onCh
       title="Claude account"
       description="Sessions run Claude Code on this server with these credentials. Keys are encrypted at rest and never shown again."
     >
-      <div className={`mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${auth?.configured ? 'bg-ok-soft text-ok' : 'bg-break-soft text-break-ink'}`}>
+      <div className={`mb-4 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${auth?.configured ? 'bg-ok-soft text-ok' : 'bg-break-soft text-break-ink'}`}>
         {auth?.configured ? <CheckCircle2 className="size-4" /> : <TriangleAlert className="size-4" />}
         {auth?.configured ? `Connected with a ${sourceLabel[auth.source]}` : 'Not connected yet'}
       </div>
@@ -63,7 +94,7 @@ function ClaudeAccount({ status, onChange }: { status: SystemStatus | null; onCh
               type="button"
               key={k}
               onClick={() => setKind(k)}
-              className={`rounded-xl border px-3 py-2.5 text-left ${kind === k ? 'border-ink bg-surface-2' : 'border-line hover:border-line-strong'}`}
+              className={`rounded-md border px-3 py-2.5 text-left ${kind === k ? 'border-sky bg-sky-soft' : 'border-line hover:border-line-strong'}`}
             >
               <span className="block text-sm font-medium">{label}</span>
               <span className="block text-xs text-ink-3">{sub}</span>
@@ -122,7 +153,7 @@ function Secrets() {
           </option>
         ))}
       </Select>
-      <ul className="divide-y divide-line rounded-xl border border-line">
+      <ul className="divide-y divide-line rounded-md border border-line">
         {list.length === 0 && <li className="px-3 py-3 text-sm text-ink-3">No secrets in this scope.</li>}
         {list.map((s) => (
           <li key={s.key} className="flex items-center gap-3 px-3 py-2">
@@ -240,7 +271,7 @@ function Defaults() {
       </Section>
 
       <Section title="Tools" description="MCP servers available to every session, in addition to each project's own .mcp.json.">
-        <div className="flex items-center justify-between gap-4 rounded-lg border border-line px-3 py-2.5">
+        <div className="flex items-center justify-between gap-4 rounded-md border border-line px-3 py-2.5">
           <span className="text-sm">
             <span className="font-medium">Browser testing (Playwright)</span>
             <span className="block text-xs text-ink-3">Lets Claude open your apps in a headless browser, click through them and take screenshots.</span>
@@ -268,33 +299,6 @@ function Defaults() {
         </Button>
       </div>
     </>
-  );
-}
-
-function Password() {
-  const [cur, setCur] = useState('');
-  const [next, setNext] = useState('');
-  return (
-    <Section title="Password" description="Changing it signs out every other device.">
-      <form
-        className="flex flex-col gap-2 sm:flex-row"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          try {
-            await api.put('/api/auth/password', { currentPassword: cur, newPassword: next });
-            setCur('');
-            setNext('');
-            toast('success', 'Password changed');
-          } catch (er) {
-            toast('error', 'Password not changed', err(er));
-          }
-        }}
-      >
-        <Input type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} placeholder="Current password" required />
-        <Input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="New password (8+ characters)" minLength={8} required />
-        <Button type="submit">Change</Button>
-      </form>
-    </Section>
   );
 }
 
@@ -340,10 +344,10 @@ function Server({ status }: { status: SystemStatus | null }) {
           )}
         </dd>
       </dl>
-      <h3 className="mt-5 mb-2 text-sm font-semibold">Installed toolchains</h3>
+      <h3 className="hud-label mt-5 mb-2">Installed toolchains</h3>
       <ul className="grid gap-1.5 sm:grid-cols-2">
         {Object.entries(status.toolchains).map(([k, v]) => (
-          <li key={k} className="flex items-center gap-2 rounded-lg border border-line px-2.5 py-1.5 text-[13px]">
+          <li key={k} className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-[13px]">
             <span className={`size-1.5 rounded-full ${v ? 'bg-ok' : 'bg-line-strong'}`} />
             <span className="w-24 font-medium">{k}</span>
             <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-ink-3">{v ?? 'not installed'}</span>
@@ -366,16 +370,15 @@ export function SettingsPage() {
     if (location.hash) setTimeout(() => document.querySelector(location.hash)?.scrollIntoView(), 50);
   }, []);
   return (
-    <div className="flex min-h-full flex-col">
-      <TopBar />
-      <main className="mx-auto w-full max-w-3xl space-y-5 px-4 pt-8 pb-16 sm:px-6">
-        <h1 className="font-display text-[30px] font-semibold tracking-[-0.015em]">Settings</h1>
+    <Shell>
+      <Page>
+        <PageHeader title="Settings" subtitle="Claude account, session defaults, secrets and this server. Sign-in security lives in Security." />
         <ClaudeAccount status={status} onChange={refresh} />
         <Defaults />
         <Secrets />
-        <Password />
+        <Appearance />
         <Server status={status} />
-      </main>
-    </div>
+      </Page>
+    </Shell>
   );
 }

@@ -3,6 +3,7 @@ import { ArrowLeft, FolderTree, GitBranch, MessageSquare, PanelRightClose, Plus,
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { Project, Session } from '../../../shared/protocol';
+import { Shell } from '../components/Shell';
 import { Button, Empty, IconButton, Spinner, StatusDot, Wordmark } from '../components/ui';
 import { api, ApiError } from '../lib/api';
 import { money, timeAgo } from '../lib/format';
@@ -60,7 +61,7 @@ function SessionList({ project, sessions, activeId, onPick }: { project: Project
         <Link to="/" className="flex items-center gap-1.5 text-[13px] text-ink-3 hover:text-ink">
           <ArrowLeft className="size-3.5" /> All projects
         </Link>
-        <h2 className="mt-2 truncate font-display text-lg font-semibold" title={project.path}>
+        <h2 className="mt-2 truncate font-display text-lg font-bold" title={project.path}>
           {project.name}
         </h2>
         <Button variant="primary" className="mt-3 w-full" icon={<Plus className="size-4" />} onClick={create} busy={creating}>
@@ -76,7 +77,7 @@ function SessionList({ project, sessions, activeId, onPick }: { project: Project
             onClick={onPick}
             className={clsx(
               'mb-0.5 flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors',
-              s.id === activeId ? 'bg-surface shadow-cloud' : 'hover:bg-surface-2',
+              s.id === activeId ? 'bg-surface shadow-cloud ring-1 ring-line-strong' : 'hover:bg-surface-2',
             )}
           >
             <StatusDot status={s.status} className="mt-1.5" />
@@ -194,6 +195,7 @@ export function Workspace() {
 
   if (desktop) {
     return (
+      <Shell bare>
       <div className="flex h-full">
         <aside className="w-64 shrink-0 border-r border-line bg-ground">{sidebar}</aside>
         <main className="relative min-w-0 flex-1">{chat}</main>
@@ -207,7 +209,7 @@ export function Workspace() {
                 className={clsx(
                   'inline-flex items-center gap-1.5 rounded-lg text-[13px] font-medium transition-colors',
                   sidePanel ? 'h-8 px-2.5' : 'size-9 justify-center',
-                  sidePanel === p.id ? 'bg-ink text-ground' : 'text-ink-2 hover:bg-surface-2',
+                  sidePanel === p.id ? 'bg-sky-soft text-sky' : 'text-ink-2 hover:bg-surface-2',
                 )}
               >
                 <p.icon className="size-4" />
@@ -223,11 +225,13 @@ export function Workspace() {
           <div className="min-h-0 flex-1">{panels}</div>
         </section>
       </div>
+      </Shell>
     );
   }
 
   // ---- phone / tablet ----
   return (
+    <Shell bare>
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1">
         <div className={clsx('h-full', mobileView === 'chat' ? 'block' : 'hidden')}>{chat}</div>
@@ -238,7 +242,7 @@ export function Workspace() {
           <button
             key={p.id}
             onClick={() => setMobileView(p.id)}
-            className={clsx('flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium', mobileView === p.id ? 'text-ink' : 'text-ink-3')}
+            className={clsx('flex flex-1 flex-col items-center gap-0.5 py-2 font-hud text-[10px] tracking-[0.06em] uppercase', mobileView === p.id ? 'text-sky' : 'text-ink-3')}
             aria-current={mobileView === p.id}
           >
             <p.icon className="size-5" />
@@ -248,7 +252,7 @@ export function Workspace() {
       </nav>
       {drawer && (
         <div className="fixed inset-0 z-40 flex" onClick={() => setDrawer(false)}>
-          <div className="absolute inset-0 bg-ink/30" />
+          <div className="absolute inset-0 bg-black/55" />
           <aside className="relative h-full w-[82%] max-w-xs bg-ground shadow-cloud" onClick={(e) => e.stopPropagation()}>
             <IconButton label="Close" className="absolute top-2 right-2" onClick={() => setDrawer(false)}>
               <X className="size-4" />
@@ -258,5 +262,6 @@ export function Workspace() {
         </div>
       )}
     </div>
+    </Shell>
   );
 }
