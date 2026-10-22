@@ -12,22 +12,44 @@ const DEFAULTS: AppSettings = {
   enablePlaywright: true,
   mcpServers: {},
   idleTimeoutMinutes: 30,
+  budgetDailyUsd: null,
+  budgetMonthlyUsd: null,
+  budgetWarnPercent: 80,
+  budgetEnforce: false,
+  sessionIdleDays: 7,
 };
+
+/** Clamp numeric settings so a bad PUT can't, say, disable the idle sign-out with -1. */
+function sanitize(patch: Partial<AppSettings>): Partial<AppSettings> {
+  const out: Partial<AppSettings> = { ...patch };
+  const cap = (v: unknown) => (v === null || v === '' || v === undefined ? null : Math.max(0, Number(v)) || null);
+  if ('budgetDailyUsd' in patch) out.budgetDailyUsd = cap(patch.budgetDailyUsd);
+  if ('budgetMonthlyUsd' in patch) out.budgetMonthlyUsd = cap(patch.budgetMonthlyUsd);
+  if ('budgetWarnPercent' in patch) out.budgetWarnPercent = Math.min(100, Math.max(1, Math.round(Number(patch.budgetWarnPercent) || 80)));
+  if ('budgetEnforce' in patch) out.budgetEnforce = !!patch.budgetEnforce;
+  if ('sessionIdleDays' in patch) out.sessionIdleDays = Math.min(30, Math.max(1, Math.round(Number(patch.sessionIdleDays) || 7)));
+  return out;
+}
+
+let cache: AppSettings | null = null;
 
 export const settings = {
   get(): AppSettings {
+    if (cache) return cache;
     const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
     const stored: Record<string, unknown> = {};
     // The table also holds internal state (e.g. setup.completedAt); only user settings go out.
     for (const r of rows) if (r.key in DEFAULTS) stored[r.key] = JSON.parse(r.value);
-    return { ...DEFAULTS, ...stored } as AppSettings;
+    cache = { ...DEFAULTS, ...stored } as AppSettings;
+    return cache;
   },
   update(patch: Partial<AppSettings>): AppSettings {
     const stmt = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-    for (const [k, v] of Object.entries(patch)) {
+    for (const [k, v] of Object.entries(sanitize(patch))) {
       if (!(k in DEFAULTS)) continue;
       stmt.run(k, JSON.stringify(v));
     }
+    cache = null;
     return this.get();
   },
 };

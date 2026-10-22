@@ -5,7 +5,7 @@ import type { Duplex } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import mime from 'mime-types';
 import { createProxyServer } from 'http-proxy-3';
-import { SESSION_COOKIE, effectiveHost, isSafeRedirectPath, parseCookies, userFromRaw, userFromSessionId } from '../auth.js';
+import { SESSION_COOKIE, SESSION_COOKIE_NAMES, authFromToken, effectiveHost, isSafeRedirectPath, isSessionAlive, parseCookies, userFromRaw } from '../auth.js';
 import { config, originFor } from '../config.js';
 import { signToken, verifyToken } from '../crypto.js';
 import { routes } from '../services/routes-store.js';
@@ -23,6 +23,8 @@ import { routes } from '../services/routes-store.js';
  *
  * Private previews never see Cloude's session cookie. Instead a signed,
  * host-bound token is handed off once and exchanged for a host-only cookie.
+ * Both carry the id of the login that created them, so signing out (or
+ * revoking that device) also cuts off its preview access.
  */
 
 const PREVIEW_COOKIE = 'cloude_preview';
@@ -129,6 +131,8 @@ export function resolvePreview(req: IncomingMessage): Resolved | null {
   return null;
 }
 
+const CLOUDE_COOKIES = [...SESSION_COOKIE_NAMES, PREVIEW_COOKIE];
+
 /** Remove Cloude's own cookies before a request reaches user code. */
 function stripCloudeCookies(req: IncomingMessage) {
   const cookie = req.headers.cookie;
@@ -136,7 +140,7 @@ function stripCloudeCookies(req: IncomingMessage) {
   const kept = cookie
     .split(';')
     .map((c) => c.trim())
-    .filter((c) => c && !c.startsWith(`${SESSION_COOKIE}=`) && !c.startsWith(`${PREVIEW_COOKIE}=`));
+    .filter((c) => c && !CLOUDE_COOKIES.some((name) => c.startsWith(`${name}=`)));
   if (kept.length) req.headers.cookie = kept.join('; ');
   else delete req.headers.cookie;
 }
@@ -145,8 +149,8 @@ function isAuthorized(req: IncomingMessage, r: Resolved): boolean {
   if (r.target.kind !== 'missing' && r.target.isPublic) return true;
   if (r.mode === 'path') return !!userFromRaw(req);
   const token = parseCookies(req.headers.cookie)[PREVIEW_COOKIE];
-  const data = token ? verifyToken<{ host: string; purpose: string }>(token) : null;
-  return !!data && data.purpose === 'preview' && data.host === r.host;
+  const data = token ? verifyToken<{ host: string; purpose: string; sid?: string }>(token) : null;
+  return !!data && data.purpose === 'preview' && data.host === r.host && !!data.sid && isSessionAlive(data.sid);
 }
 
 function redirect(res: ServerResponse, location: string) {
@@ -220,12 +224,12 @@ export function handlePreviewRequest(req: IncomingMessage, res: ServerResponse):
   // Token handoff endpoint for host-based private previews.
   const url = new URL(req.url ?? '/', 'http://x');
   if (r.mode !== 'path' && url.pathname === '/__cloude_auth') {
-    const handoff = verifyToken<{ host: string; purpose: string }>(url.searchParams.get('token') ?? '');
-    if (!handoff || handoff.purpose !== 'preview-handoff' || handoff.host !== r.host) {
+    const handoff = verifyToken<{ host: string; purpose: string; sid?: string }>(url.searchParams.get('token') ?? '');
+    if (!handoff || handoff.purpose !== 'preview-handoff' || handoff.host !== r.host || !handoff.sid || !isSessionAlive(handoff.sid)) {
       res.writeHead(403, { 'content-type': 'text/plain' }).end('Invalid or expired preview link. Open it again from Cloude.');
       return true;
     }
-    const cookie = signToken({ host: r.host, purpose: 'preview' }, PREVIEW_COOKIE_TTL);
+    const cookie = signToken({ host: r.host, purpose: 'preview', sid: handoff.sid }, PREVIEW_COOKIE_TTL);
     const next = url.searchParams.get('next') ?? '/';
     res.writeHead(302, {
       'set-cookie': `${PREVIEW_COOKIE}=${cookie}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${PREVIEW_COOKIE_TTL / 1000}${config.secure ? '; Secure' : ''}`,
@@ -283,11 +287,11 @@ function isPreviewHost(host: string): boolean {
 export function registerPreviewRoutes(app: FastifyInstance) {
   // Step 1 of the handoff: runs on the main host where the session cookie lives.
   app.get<{ Querystring: { host?: string; next?: string } }>('/api/preview-auth', async (req, reply) => {
-    const user = userFromSessionId(req.cookies[SESSION_COOKIE]);
-    if (!user) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    const auth = authFromToken(req.cookies[SESSION_COOKIE]);
+    if (!auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
     const host = String(req.query.host ?? '').toLowerCase();
     if (!isPreviewHost(host)) return reply.code(400).send({ error: 'Not a preview host' });
-    const token = signToken({ host, purpose: 'preview-handoff' }, 60_000);
+    const token = signToken({ host, purpose: 'preview-handoff', sid: auth.sid }, 60_000);
     const qs = new URLSearchParams({ token, next: String(req.query.next ?? '/') });
     return reply.redirect(`${routes.byHostname(host) ? `${config.secure ? 'https' : 'http'}://${host}` : originFor(host)}/__cloude_auth?${qs}`);
   });

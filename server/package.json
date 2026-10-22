@@ -1,6 +1,7 @@
 {
   "name": "@cloude/server",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,9 +16,11 @@
     "@fastify/multipart": "^10.1.4",
     "@fastify/static": "^10.1.7",
     "@lydell/node-pty": "^1.2.0-beta.15",
+    "@simplewebauthn/server": "^14.0.3",
     "fastify": "^5.12.7",
     "http-proxy-3": "^2.0.1",
     "mime-types": "^3.0.2",
+    "uqr": "^0.1.3",
     "ws": "^8.22.0",
     "zod": "^4.6.7"
   },

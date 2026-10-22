@@ -29,6 +29,7 @@ import { db, now } from '../db.js';
 import { hub } from '../hub.js';
 import { projects } from '../projects.js';
 import { buildEnv, settings } from '../settings.js';
+import { assertWithinBudget, ingestRateLimitEvent, ingestUsageResponse, recordTurn } from '../usage.js';
 import { AsyncQueue } from '../util/async-queue.js';
 import { HttpError } from '../util/paths.js';
 import { CLOUDE_READONLY_TOOLS, createCloudeMcp } from './cloude-mcp.js';
@@ -49,6 +50,7 @@ interface SessionRow {
   last_seq: number;
   last_error: string | null;
   allowed_tools: string;
+  usage_snapshot: string;
   created_at: number;
   updated_at: number;
 }
@@ -109,6 +111,8 @@ function supportsAdaptiveThinking(model: string) {
   return !/haiku-4|sonnet-4-5|opus-4-[015]|claude-3/.test(model);
 }
 
+let lastPlanUsageAt = 0;
+
 interface Pending {
   req: PermissionRequest;
   resolve: (r: PermissionResponse) => void;
@@ -121,7 +125,6 @@ export class AgentSession {
   private pending = new Map<string, Pending>();
   private ownUuids = new Set<string>();
   private idleTimer: NodeJS.Timeout | null = null;
-  private costBase = 0;
   private authProblem = false;
   private resumedRun = false;
   private stderrTail: string[] = [];
@@ -210,6 +213,7 @@ export class AgentSession {
 
   send(text: string, images: ImageAttachment[] = []): void {
     if (!text.trim() && images.length === 0) throw new HttpError(400, 'Message is empty');
+    assertWithinBudget();
     if (this.idleTimer) clearTimeout(this.idleTimer);
     const uuid = crypto.randomUUID();
     this.record('user', { text, uuid, images: images.map((i) => ({ mediaType: i.mediaType, name: i.name, data: i.data })) });
@@ -329,7 +333,6 @@ export class AgentSession {
     this.q = q;
     this.input = input;
     this.abort = abort;
-    this.costBase = this.row.total_cost_usd;
     this.resumedRun = !!this.row.started;
     this.stderrTail = [];
     this.save({ status: 'starting', last_error: null });
@@ -433,19 +436,42 @@ export class AgentSession {
           hub.broadcast({ t: 'notify', level: 'error', title: 'Claude is not authenticated', body: 'Open Settings → Claude account', sessionId: this.id });
         }
         this.authProblem = false;
-        // total_cost_usd is cumulative for the process; add it to what earlier processes spent.
+        // modelUsage is a running total (and may already include a resumed transcript's
+        // history), so the ledger books only the delta since the last snapshot.
+        const { snapshot, costDelta } = recordTurn(this.id, this.row.project_id, this.row.usage_snapshot, msg.modelUsage);
         this.save({
           status: this.pending.size ? 'awaiting_input' : 'idle',
-          total_cost_usd: this.costBase + (msg.total_cost_usd ?? 0),
+          total_cost_usd: this.row.total_cost_usd + costDelta,
+          usage_snapshot: snapshot,
           last_error: lastError,
         });
+        this.refreshPlanUsage();
         this.scheduleIdleShutdown();
         return;
       }
 
+      case 'conversation_reset':
+        // /clear (and friends) restart the SDK's running totals at zero; so does our baseline.
+        this.save({ usage_snapshot: '{}' }, false);
+        this.live(msg);
+        return;
+
+      case 'rate_limit_event':
+        ingestRateLimitEvent(msg.rate_limit_info);
+        this.live(msg);
+        return;
+
       default:
         this.live(msg);
     }
+  }
+
+  /** Best-effort plan-limit refresh via the SDK's experimental /usage request (at most once a minute, server-wide). */
+  private refreshPlanUsage() {
+    const q = this.q as (Query & { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (o: { skipBehaviors: boolean }) => Promise<unknown> }) | null;
+    if (!q?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET || Date.now() - lastPlanUsageAt < 60_000) return;
+    lastPlanUsageAt = Date.now();
+    q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true }).then(ingestUsageResponse, () => {});
   }
 
   /** Free memory for sessions nobody is using; they resume transparently. */

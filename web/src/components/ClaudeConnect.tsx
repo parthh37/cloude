@@ -18,7 +18,7 @@ const message = (e: unknown) => (e instanceof ApiError ? e.message : 'Could not 
 
 export function ClaudeStatusBanner({ auth }: { auth: ClaudeAuth | null | undefined }) {
   return (
-    <div className={clsx('flex items-center gap-2 rounded-lg px-3 py-2 text-sm', auth?.configured ? 'bg-ok-soft text-ok' : 'bg-break-soft text-break-ink')}>
+    <div className={clsx('flex items-center gap-2 rounded-md px-3 py-2 text-sm', auth?.configured ? 'bg-ok-soft text-ok' : 'bg-break-soft text-break-ink')}>
       {auth?.configured ? <CheckCircle2 className="size-4 shrink-0" /> : <TriangleAlert className="size-4 shrink-0" />}
       {auth?.configured ? `Connected with ${SOURCE_LABEL[auth.source]}` : 'Not connected yet'}
     </div>
@@ -101,7 +101,7 @@ export function ClaudeConnect({ onConnected }: { onConnected: (auth: ClaudeAuth)
               setPlan(k);
               setError(null);
             }}
-            className={clsx('rounded-xl border px-3 py-2.5 text-left', plan === k ? 'border-ink bg-surface-2' : 'border-line hover:border-line-strong')}
+            className={clsx('rounded-md border px-3 py-2.5 text-left', plan === k ? 'border-sky bg-sky-soft' : 'border-line hover:border-line-strong')}
           >
             <span className="block text-sm font-medium">{label}</span>
             <span className="block text-xs text-ink-3">{sub}</span>

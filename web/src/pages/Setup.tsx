@@ -23,7 +23,7 @@ export function Setup() {
   const setup = useStore((s) => s.setup);
   if (!authChecked || !setup)
     return (
-      <div className="grid h-full place-items-center text-ink-3">
+      <div className="hud-ground grid h-full place-items-center text-ink-3">
         <Spinner className="size-6" />
       </div>
     );
@@ -42,13 +42,13 @@ function Wizard({ needsAdmin }: { needsAdmin: boolean }) {
   const back = index > 0 && steps[index - 1] !== 'account' ? () => setIndex((i) => i - 1) : undefined;
 
   return (
-    <div className="flex min-h-full flex-col items-center px-5 py-10">
+    <div className="hud-ground flex min-h-full flex-col items-center px-5 py-10">
       <div className="w-full max-w-lg">
         <Wordmark className="mb-8 text-2xl" />
         <ol className="mb-6 flex items-center gap-2" aria-label="Setup progress">
           {steps.map((s, i) => (
             <li key={s} className="flex flex-1 flex-col gap-1.5" aria-current={i === index ? 'step' : undefined}>
-              <span className={clsx('h-1 rounded-full', i < index ? 'bg-ok' : i === index ? 'bg-dawn' : 'bg-line')} />
+              <span className={clsx('h-1 rounded-full', i < index ? 'bg-ok' : i === index ? 'bg-sky' : 'bg-line')} />
               <span className={clsx('text-xs', i === index ? 'font-medium text-ink' : 'text-ink-3')}>{STEP_LABEL[s]}</span>
             </li>
           ))}
@@ -60,7 +60,6 @@ function Wizard({ needsAdmin }: { needsAdmin: boolean }) {
           {step === 'finish' && <FinishStep onBack={back} />}
         </div>
       </div>
-      <div className="drift mt-16 w-full max-w-lg rounded-full" data-state="running" aria-hidden />
     </div>
   );
 }
@@ -149,7 +148,7 @@ function AccountStep({ onDone }: { onDone: () => void }) {
         <Field label="Username">
           <Input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} required />
         </Field>
-        <Field label="Password" hint="At least 8 characters. A passphrase of a few random words works well.">
+        <Field label="Password" hint="10+ characters. A passphrase of a few random words works well.">
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required autoFocus={!editCode} />
         </Field>
         <Field label="Confirm password">
