@@ -8,7 +8,7 @@ import { toast } from '../lib/store';
 import { StringDiff } from './DiffView';
 import { Markdown } from './Markdown';
 
-async function respond(req: PermissionRequest, body: PermissionResponse) {
+export async function respond(req: PermissionRequest, body: PermissionResponse) {
   try {
     await api.post(`/api/sessions/${req.sessionId}/permissions/${req.id}`, body as any);
   } catch (e) {
@@ -87,7 +87,7 @@ function ToolRequest({ req, root }: { req: PermissionRequest; root?: string }) {
   );
 }
 
-interface Question {
+export interface Question {
   question: string;
   header: string;
   multiSelect: boolean;

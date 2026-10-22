@@ -3,6 +3,7 @@ import { ArrowLeft, FolderTree, GitBranch, MessageSquare, PanelRightClose, Plus,
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { Project, Session } from '../../../shared/protocol';
+import { ActivityLine } from '../components/SessionLive';
 import { Shell } from '../components/Shell';
 import { Button, Empty, IconButton, Spinner, StatusDot, Wordmark } from '../components/ui';
 import { api, ApiError } from '../lib/api';
@@ -83,10 +84,14 @@ function SessionList({ project, sessions, activeId, onPick }: { project: Project
             <StatusDot status={s.status} className="mt-1.5" />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{s.title}</span>
-              <span className="block text-xs text-ink-3">
-                {s.status === 'awaiting_input' ? <span className="font-semibold text-break-ink">Needs you</span> : timeAgo(s.updatedAt)}
-                {s.totalCostUsd > 0 && ` · ${money(s.totalCostUsd)}`}
-              </span>
+              {s.status === 'running' || s.status === 'starting' ? (
+                <ActivityLine session={s} dot={false} />
+              ) : (
+                <span className="block text-xs text-ink-3">
+                  {s.status === 'awaiting_input' ? <span className="font-semibold text-break-ink">Needs you</span> : timeAgo(s.updatedAt)}
+                  {s.totalCostUsd > 0 && ` · ${money(s.totalCostUsd)}`}
+                </span>
+              )}
             </span>
           </Link>
         ))}
