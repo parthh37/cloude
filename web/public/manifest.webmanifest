@@ -1,0 +1,10 @@
+{
+  "name": "Cloude",
+  "short_name": "Cloude",
+  "description": "Operate Claude Code on your server from any browser.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#E8ECF1",
+  "theme_color": "#18202C",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

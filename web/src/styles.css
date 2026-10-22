@@ -1,0 +1,314 @@
+@import 'tailwindcss';
+@import 'highlight.js/styles/github-dark-dimmed.css';
+@import '@xterm/xterm/css/xterm.css';
+
+/*
+ * Cloude design tokens — "overcast sky, server portholes".
+ * The interface is a calm overcast sky (your side). Anything that IS the
+ * server — terminals, logs, commands, diffs — is a dark porthole inset.
+ */
+:root {
+  --ground: #e8ecf1; /* stratus */
+  --surface: #f7f9fb; /* cloudtop */
+  --surface-2: #eef2f6;
+  --line: #d5dce5;
+  --line-strong: #bfc8d4;
+  --ink: #18202c;
+  --ink-2: #4a5566;
+  --ink-3: #7a8696;
+  --port: #0f141c; /* porthole */
+  --port-2: #161d27;
+  --port-ink: #c9d3e0;
+  --port-dim: #7d8a9c;
+  --port-line: #222b38;
+  --dawn: #d9673f; /* Claude acting */
+  --dawn-ink: #b0502c;
+  --dawn-soft: #f6e1d7;
+  --break: #e9a23b; /* needs you */
+  --break-ink: #85560c;
+  --break-soft: #fbedd3;
+  --sky: #4f7fb8; /* links / working */
+  --sky-soft: #dde8f5;
+  --ok: #3e8f6a;
+  --ok-soft: #dcefe5;
+  --bad: #c64545;
+  --bad-soft: #f7dede;
+  --shadow: 0 1px 2px rgb(24 32 44 / 0.06), 0 4px 16px rgb(24 32 44 / 0.06);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0e131a;
+    --surface: #151b24;
+    --surface-2: #1b2330;
+    --line: #263040;
+    --line-strong: #344052;
+    --ink: #e3e9f1;
+    --ink-2: #a7b2c2;
+    --ink-3: #6f7b8c;
+    --port: #080b10;
+    --port-2: #0f141b;
+    --port-ink: #c9d3e0;
+    --port-dim: #6d798a;
+    --port-line: #1a212c;
+    --dawn: #ee8a62;
+    --dawn-ink: #f2a07f;
+    --dawn-soft: #3a2419;
+    --break: #f0b354;
+    --break-ink: #f3c477;
+    --break-soft: #3a2c13;
+    --sky: #7fa9db;
+    --sky-soft: #1b2a3d;
+    --ok: #5db98c;
+    --ok-soft: #15301f;
+    --bad: #e06a6a;
+    --bad-soft: #3a1a1a;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 6px 20px rgb(0 0 0 / 0.25);
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-port: var(--port);
+  --color-port-2: var(--port-2);
+  --color-port-ink: var(--port-ink);
+  --color-port-dim: var(--port-dim);
+  --color-port-line: var(--port-line);
+  --color-dawn: var(--dawn);
+  --color-dawn-ink: var(--dawn-ink);
+  --color-dawn-soft: var(--dawn-soft);
+  --color-break: var(--break);
+  --color-break-ink: var(--break-ink);
+  --color-break-soft: var(--break-soft);
+  --color-sky: var(--sky);
+  --color-sky-soft: var(--sky-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --font-display: 'Familjen Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Atkinson Hyperlegible', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --shadow-cloud: var(--shadow);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--sky) 30%, transparent);
+}
+
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* ---- The drift line: the session's horizon ----------------------------------- */
+.drift {
+  position: relative;
+  height: 3px;
+  background: var(--line);
+  overflow: hidden;
+  transition: background-color 400ms ease;
+}
+.drift[data-state='running']::before,
+.drift[data-state='starting']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(ellipse 60px 3px at 30px 50%, var(--sky) 0%, transparent 70%),
+    radial-gradient(ellipse 34px 3px at 120px 50%, color-mix(in oklab, var(--sky) 70%, transparent) 0%, transparent 70%),
+    radial-gradient(ellipse 80px 3px at 210px 50%, color-mix(in oklab, var(--sky) 55%, transparent) 0%, transparent 70%);
+  background-size: 280px 100%;
+  animation: drift 7s linear infinite;
+}
+.drift[data-state='starting']::before {
+  opacity: 0.5;
+}
+.drift[data-state='awaiting_input'] {
+  background: var(--break);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+.drift[data-state='error'] {
+  background: var(--bad);
+}
+@keyframes drift {
+  from {
+    background-position-x: 0;
+  }
+  to {
+    background-position-x: 280px;
+  }
+}
+@keyframes breathe {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---- Porthole insets (server output) ------------------------------------------- */
+.porthole {
+  background: var(--port);
+  color: var(--port-ink);
+  border: 1px solid var(--port-line);
+  border-radius: 10px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* ---- Markdown ---------------------------------------------------------------------- */
+.prose-cloude {
+  overflow-wrap: anywhere;
+}
+.prose-cloude > * + * {
+  margin-top: 0.7em;
+}
+.prose-cloude h1,
+.prose-cloude h2,
+.prose-cloude h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.25;
+  margin-top: 1.1em;
+}
+.prose-cloude h1 {
+  font-size: 1.3em;
+}
+.prose-cloude h2 {
+  font-size: 1.15em;
+}
+.prose-cloude h3 {
+  font-size: 1.02em;
+}
+.prose-cloude ul,
+.prose-cloude ol {
+  padding-left: 1.3em;
+}
+.prose-cloude ul {
+  list-style: disc;
+}
+.prose-cloude ol {
+  list-style: decimal;
+}
+.prose-cloude li + li {
+  margin-top: 0.2em;
+}
+.prose-cloude a {
+  color: var(--sky);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose-cloude :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: 0.05em 0.35em;
+  border-radius: 5px;
+}
+.prose-cloude pre {
+  background: var(--port);
+  color: var(--port-ink);
+  border: 1px solid var(--port-line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.prose-cloude pre code {
+  font-family: var(--font-mono);
+  background: transparent !important;
+  padding: 0 !important;
+}
+.prose-cloude blockquote {
+  border-left: 3px solid var(--line-strong);
+  padding-left: 0.9em;
+  color: var(--ink-2);
+}
+.prose-cloude table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  font-size: 0.93em;
+}
+.prose-cloude th,
+.prose-cloude td {
+  border: 1px solid var(--line);
+  padding: 4px 9px;
+  text-align: left;
+}
+.prose-cloude th {
+  background: var(--surface-2);
+}
+.prose-cloude hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* xterm should fill its porthole */
+.xterm {
+  padding: 8px 0 0 10px;
+  height: 100%;
+}
+.xterm-viewport {
+  background: transparent !important;
+}
+
+/* CodeMirror */
+.cm-editor {
+  height: 100%;
+  font-size: 13px;
+}
+.cm-editor .cm-scroller {
+  font-family: var(--font-mono) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .drift[data-state='running'] {
+    background: var(--sky);
+  }
+}
+
+/* Safe-area padding for phones with notches / home indicators */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}

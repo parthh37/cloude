@@ -1,0 +1,26 @@
+# Caddy terminates TLS for:
+#   <CLOUDE_DOMAIN>              the Cloude web app
+#   p-<port>.<CLOUDE_DOMAIN>     private previews of any port
+#   <name>.<CLOUDE_DOMAIN>       published apps / deployments
+#   any custom domain you attach to a published app
+#
+# Certificates are issued on demand (HTTP-01, no DNS API needed). Cloude's
+# /api/tls-ask endpoint approves only hosts it actually serves, so nobody can
+# make this server request certificates for arbitrary names.
+{
+	email {$ACME_EMAIL}
+	on_demand_tls {
+		ask http://127.0.0.1:8787/api/tls-ask
+	}
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8787 {
+		# Stream server-sent output (logs, long responses) without buffering.
+		flush_interval -1
+	}
+}

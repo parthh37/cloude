@@ -1,0 +1,46 @@
+# Cloude production stack: the workbench + Caddy for automatic HTTPS.
+#
+#   cp .env.example .env   # set CLOUDE_DOMAIN, CLOUDE_ADMIN_PASSWORD, ACME_EMAIL
+#   docker compose up -d --build
+#
+# Both services use host networking on purpose: apps that Claude starts (dev
+# servers, `docker run -p 127.0.0.1:…` deployments) listen on the host's
+# localhost, and Cloude's preview proxy must be able to reach them there.
+# Keep a firewall in front (only 22/80/443 open) — see README "Security".
+
+services:
+  cloude:
+    build: .
+    image: cloude:latest
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    environment:
+      HOST: 127.0.0.1 # only Caddy talks to Cloude
+      PORT: 8787
+      CLOUDE_PUBLIC_URL: https://${CLOUDE_DOMAIN}
+      CLOUDE_PREVIEW_DOMAIN: ${CLOUDE_DOMAIN}
+    volumes:
+      - cloude-data:/data # database, secrets key, project workspaces
+      - cloude-home:/home/cloude # Claude login, caches, toolchains installed by Claude
+      - /var/run/docker.sock:/var/run/docker.sock # lets Claude build/run containers
+    shm_size: 1gb # headless Chromium needs more than Docker's 64 MB default
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - cloude
+
+volumes:
+  cloude-data:
+  cloude-home:
+  caddy-data:
+  caddy-config:
