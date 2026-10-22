@@ -6,6 +6,7 @@ import { Spinner } from './components/ui';
 import { api } from './lib/api';
 import { upsertSessions, useStore } from './lib/store';
 import { socket } from './lib/ws';
+import { InfraRoute } from './infra/InfraRoute';
 import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
 import { SettingsPage } from './pages/Settings';
@@ -93,6 +94,14 @@ export function App() {
           element={
             <Gate>
               <Workspace />
+            </Gate>
+          }
+        />
+        <Route
+          path="/infra"
+          element={
+            <Gate>
+              <InfraRoute />
             </Gate>
           }
         />

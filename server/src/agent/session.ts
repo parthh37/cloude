@@ -27,6 +27,7 @@ import type {
 import { config, playwrightMcp } from '../config.js';
 import { db, now } from '../db.js';
 import { hub } from '../hub.js';
+import { applyInfra } from '../infra/session-hook.js';
 import { projects } from '../projects.js';
 import { buildEnv, settings } from '../settings.js';
 import { AsyncQueue } from '../util/async-queue.js';
@@ -324,6 +325,7 @@ export class AgentSession {
         if (this.stderrTail.length > 50) this.stderrTail.shift();
       },
     };
+    applyInfra(options, this.row); // model routing, sandboxes, semantic search — see server/src/infra
 
     const q = query({ prompt: input, options });
     this.q = q;
