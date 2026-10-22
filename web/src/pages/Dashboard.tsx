@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import type { Project, Session, UsageReport } from '../../../shared/protocol';
 import { Meter, PageHeader, Panel, StatTile, severityFor } from '../components/hud';
+import { ActivityLine, PendingAsk } from '../components/SessionLive';
 import { Page, Shell } from '../components/Shell';
 import { Button, Dialog, Empty, Field, Input } from '../components/ui';
 import { api, ApiError } from '../lib/api';
@@ -56,7 +57,6 @@ export function Dashboard() {
   const usage = useStore((s) => s.usage);
   const history = useStore((s) => s.metrics.history);
   const report = useReport24h();
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState(params.get('new') === 'project');
 
@@ -117,19 +117,18 @@ export function Dashboard() {
         )}
 
         {needsYou.length > 0 && (
-          <section className="grid gap-2 sm:grid-cols-2" aria-label="Sessions waiting on you">
+          <section className="grid grid-cols-1 items-start gap-2 sm:grid-cols-2" aria-label="Sessions waiting on you">
             {needsYou.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => navigate(`/p/${s.projectId}/s/${s.id}`)}
-                className="flex items-center gap-3 rounded-lg border border-break/50 bg-break-soft px-3.5 py-2.5 text-left hover:border-break"
-              >
-                <span className="annun" data-lit="caution" data-flash="">
-                  Needs you
-                </span>
-                <span className="min-w-0 flex-1 truncate font-medium">{s.title}</span>
-                <span className="text-[13px] text-break-ink">Open →</span>
-              </button>
+              <div key={s.id} className="rounded-lg border border-break/50 bg-surface p-2.5">
+                <Link to={`/p/${s.projectId}/s/${s.id}`} className="group flex items-center gap-3 px-1">
+                  <span className="annun" data-lit="caution" data-flash="">
+                    Needs you
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-medium">{s.title}</span>
+                  <span className="text-[13px] text-break-ink group-hover:underline">Open →</span>
+                </Link>
+                <PendingAsk sessionId={s.id} className="mt-2" />
+              </div>
             ))}
           </section>
         )}
@@ -199,20 +198,25 @@ export function Dashboard() {
                   const cost = ps.reduce((n, s) => n + s.totalCostUsd, 0);
                   const apps = services.filter((x) => x.projectId === p.id && x.status === 'running').length;
                   const latest = ps[0];
+                  const flying = ps.find((s) => s.status === 'running' || s.status === 'starting');
                   return (
                     <li key={p.id}>
                       <Link to={`/p/${p.id}`} className="flex items-center gap-4 px-3.5 py-3 transition-colors hover:bg-surface-2">
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-display text-[15px] font-bold">{p.name}</div>
-                          <div className="truncate text-[12.5px] text-ink-3">
-                            {latest ? (
-                              <>
-                                {latest.title} · {timeAgo(latest.updatedAt)}
-                              </>
-                            ) : (
-                              <span className="font-mono text-[11.5px]">{p.path}</span>
-                            )}
-                          </div>
+                          {flying ? (
+                            <ActivityLine session={flying} dot={false} />
+                          ) : (
+                            <div className="truncate text-[12.5px] text-ink-3">
+                              {latest ? (
+                                <>
+                                  {latest.title} · {timeAgo(latest.updatedAt)}
+                                </>
+                              ) : (
+                                <span className="font-mono text-[11.5px]">{p.path}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <SessionDots sessions={ps} />
                         <div className="hidden w-20 text-right sm:block">

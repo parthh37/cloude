@@ -83,6 +83,7 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 })
 function handleEventsSocket(ws: WebSocket) {
   const client = hub.add(ws);
   hub.send(client, { t: 'hello', serverTime: Date.now() });
+  hub.send(client, { t: 'pending_all', pending: sessions.pendingSnapshot() });
   ws.on('message', (raw) => {
     let msg: ClientMessage;
     try {

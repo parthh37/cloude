@@ -31,12 +31,27 @@ export interface Session {
   status: SessionStatus;
   started: boolean; // true once Claude has created its transcript (resume possible)
   alive: boolean; // whether a Claude process is currently attached
+  activity: SessionActivity | null; // what Claude is doing right now (live only, null between turns)
   archived: boolean;
   totalCostUsd: number;
   lastSeq: number;
   lastError: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/**
+ * One line of "what is Claude doing?" for views that watch many sessions at
+ * once (board, dashboard, session list). Summarised from the SDK stream on the
+ * server and broadcast at most about once a second per session; the full
+ * stream stays subscriber-only.
+ */
+export interface SessionActivity {
+  kind: 'thinking' | 'writing' | 'tool' | 'agent' | 'compacting';
+  label: string; // "Editing", "Thinking", "Agent · Explore"
+  detail?: string; // target: a path, a command, a subagent's current step
+  tool?: string; // tool name, for 'tool' and 'agent'
+  since: number; // when this step began (ms); clients derive elapsed time from it
 }
 
 export interface ImageAttachment {
@@ -400,6 +415,7 @@ export type ServerMessage =
   | { t: 'session'; session: Session }
   | { t: 'session_deleted'; sessionId: string }
   | { t: 'pending'; sessionId: string; requests: PermissionRequest[] }
+  | { t: 'pending_all'; pending: Record<string, PermissionRequest[]> } // on connect: every open prompt, so boards show questions asked before the page loaded
   | { t: 'services'; services: ServiceState[] }
   | { t: 'routes'; routes: Route[] }
   | { t: 'tunnels'; tunnels: Tunnel[] }
