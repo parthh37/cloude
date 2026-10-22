@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import type { AppSettings, SystemStatus } from '../../../shared/protocol.js';
+import type { AppSettings, SystemStatus, UsageRange } from '../../../shared/protocol.js';
 import { sessions } from '../agent/session.js';
 import { config } from '../config.js';
+import { metricsSnapshot } from '../monitor.js';
 import { AUTH_SECRET_KEYS, secrets, settings } from '../settings.js';
+import { usageLive, usageReport, refreshUsage } from '../usage.js';
 import { toolVersion } from '../util/exec.js';
 
 let toolchainCache: { at: number; value: Record<string, string | null> } | null = null;
@@ -78,7 +80,16 @@ export function registerSystemRoutes(app: FastifyInstance) {
   });
 
   app.get('/api/settings', async () => ({ settings: settings.get() }));
-  app.put<{ Body: Partial<AppSettings> }>('/api/settings', async (req) => ({ settings: settings.update(req.body ?? {}) }));
+  app.put<{ Body: Partial<AppSettings> }>('/api/settings', async (req) => {
+    const updated = settings.update(req.body ?? {});
+    refreshUsage(); // budgets may have changed
+    return { settings: updated };
+  });
+
+  // ---- usage & health ----
+  app.get<{ Querystring: { range?: UsageRange } }>('/api/usage', async (req) => usageReport(req.query.range ?? '7d'));
+  app.get('/api/usage/live', async () => usageLive());
+  app.get('/api/metrics', async () => metricsSnapshot());
 
   // Secrets: projectId omitted => global
   app.get<{ Querystring: { projectId?: string } }>('/api/secrets', async (req) => ({

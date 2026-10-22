@@ -56,3 +56,81 @@ export function fileToBase64(file: File): Promise<string> {
     r.readAsDataURL(file);
   });
 }
+
+// ---- telemetry formatting ---------------------------------------------------------
+
+/** 1,284 · 12.9K · 3.4M · 1.2B */
+export function compact(n: number): string {
+  const a = Math.abs(n);
+  if (a < 1000) return Math.round(n).toLocaleString();
+  const [d, s] = a < 1e6 ? [1e3, 'K'] : a < 1e9 ? [1e6, 'M'] : [1e9, 'B'];
+  const v = n / d;
+  return `${v.toFixed(Math.abs(v) < 10 ? 1 : 0)}${s}`;
+}
+
+/** Dollar amounts with precision that matches their size: $123 · $4.82 · $0.034 */
+export function usd(n: number): string {
+  if (n === 0) return '$0';
+  const a = Math.abs(n);
+  if (a >= 100) return `$${n.toFixed(0)}`;
+  if (a >= 0.1) return `$${n.toFixed(2)}`;
+  if (a >= 0.001) return `$${n.toFixed(3)}`;
+  return '<$0.001';
+}
+
+export const rate = (bytesPerSec: number) => `${bytes(Math.round(bytesPerSec))}/s`;
+
+/** Seconds → "3d 4h" / "5h 12m" / "12m" / "40s" */
+export function span(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  if (m) return `${m}m`;
+  return `${s}s`;
+}
+
+/** Signed % change vs the previous period. */
+export function changeVs(cur: number, prev: number): string | null {
+  if (!prev) return cur ? 'new' : null;
+  const p = ((cur - prev) / prev) * 100;
+  if (Math.abs(p) < 0.5) return '±0%';
+  return `${p > 0 ? '▲' : '▼'} ${Math.abs(p).toFixed(Math.abs(p) < 10 ? 1 : 0)}%`;
+}
+
+export const utcTime = (t: number) => new Date(t).toISOString().slice(11, 16);
+export const utcDay = (t: number) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+
+/** "Chrome on macOS" */
+export function describeUserAgent(ua: string | null): string {
+  if (!ua) return 'Unknown device';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${browser} on ${os}` : browser;
+}
+
+// ---- model identity (fixed colour slots, never by rank) ----------------------------
+
+const MODEL_SLOTS = [
+  { key: 'opus-5-5', test: /opus-5-5/, label: 'Opus 5.5', color: 'var(--series-1)' },
+  { key: 'sonnet-5-5', test: /sonnet-5-5/, label: 'Sonnet 5.5', color: 'var(--series-2)' },
+  { key: 'haiku-5-5', test: /haiku-5-5/, label: 'Haiku 5.5', color: 'var(--series-3)' },
+  { key: 'fable-5-1', test: /fable-5-1/, label: 'Fable 5.1', color: 'var(--series-4)' },
+];
+export const OTHER_MODEL = { key: 'other', label: 'Other models', color: 'var(--series-other)' };
+export const MODEL_KEYS = [...MODEL_SLOTS.map(({ key, label, color }) => ({ key, label, color })), OTHER_MODEL];
+
+export function modelSlot(model: string): { key: string; label: string; color: string } {
+  const m = MODEL_SLOTS.find((s) => s.test.test(model));
+  return m ? { key: m.key, label: m.label, color: m.color } : OTHER_MODEL;
+}
+
+/** Human name for any model id: claude-sonnet-5 → Sonnet 5 */
+export function modelName(model: string): string {
+  const slot = MODEL_SLOTS.find((s) => s.test.test(model));
+  if (slot) return slot.label;
+  const m = /claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(model);
+  return m ? `${m[1]![0]!.toUpperCase()}${m[1]!.slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ''}` : model;
+}

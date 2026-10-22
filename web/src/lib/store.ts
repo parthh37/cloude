@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import type {
+  AuthUser,
+  HostInfo,
+  MetricsSample,
   PermissionRequest,
+  ProcessGroup,
   Project,
   Route,
   ServerMessage,
@@ -9,6 +13,7 @@ import type {
   SessionEvent,
   SystemStatus,
   Tunnel,
+  UsageLive,
 } from '../../../shared/protocol';
 
 /** In-flight streaming text for a session, keyed by `${messageId}:${blockIndex}`. */
@@ -29,8 +34,15 @@ export interface Toast {
   sessionId?: string;
 }
 
+export interface MetricsState {
+  host: HostInfo | null;
+  intervalMs: number;
+  history: MetricsSample[];
+  processes: ProcessGroup[];
+}
+
 interface State {
-  user: { id: string; username: string } | null;
+  user: AuthUser | null;
   authChecked: boolean;
   status: SystemStatus | null;
   projects: Project[];
@@ -46,9 +58,12 @@ interface State {
   tunnels: Tunnel[];
   toasts: Toast[];
   connection: 'connecting' | 'open' | 'closed';
+  usage: UsageLive | null;
+  metrics: MetricsState;
+  paletteOpen: boolean;
 }
 
-export const useStore = create<State>(() => ({
+const initialState = (): State => ({
   user: null,
   authChecked: false,
   status: null,
@@ -65,7 +80,17 @@ export const useStore = create<State>(() => ({
   tunnels: [],
   toasts: [],
   connection: 'connecting',
-}));
+  usage: null,
+  metrics: { host: null, intervalMs: 5000, history: [], processes: [] },
+  paletteOpen: false,
+});
+
+export const useStore = create<State>(initialState);
+
+/** Forget everything from the signed-out login: nothing lingers in memory or the tab title. */
+export function resetStore() {
+  useStore.setState({ ...initialState(), authChecked: true });
+}
 
 const set = useStore.setState;
 const get = useStore.getState;
@@ -212,6 +237,16 @@ export function handleServerMessage(msg: ServerMessage) {
     case 'notify':
       toast(msg.level, msg.title, msg.body, msg.sessionId);
       systemNotify(msg.title, msg.body);
+      break;
+    case 'usage':
+      set({ usage: msg.usage });
+      break;
+    case 'metrics':
+      set((s) => {
+        const history = [...s.metrics.history, msg.sample];
+        if (history.length > 720) history.splice(0, history.length - 720);
+        return { metrics: { ...s.metrics, history, processes: msg.processes } };
+      });
       break;
     case 'error':
       toast('error', msg.message);
