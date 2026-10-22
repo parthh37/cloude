@@ -25,6 +25,7 @@ import { services } from './services/service-manager.js';
 import { initSetup, printSetupBanner } from './setup.js';
 import { tunnels } from './services/tunnels.js';
 import { terminals } from './terminal/terminals.js';
+import { registerInfra } from './infra/index.js';
 import { HttpError } from './util/paths.js';
 
 await ensureAdmin();
@@ -61,6 +62,7 @@ registerSetupRoutes(app);
 registerSystemRoutes(app);
 registerPreviewRoutes(app);
 registerProjectAndSessionRoutes(app);
+registerInfra(app); // sandboxes, storage cleaner, model routing, embeddings
 registerWorkspaceRoutes(app);
 registerHostingRoutes(app);
 
@@ -87,6 +89,7 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 })
 function handleEventsSocket(ws: WebSocket) {
   const client = hub.add(ws);
   hub.send(client, { t: 'hello', serverTime: Date.now() });
+  hub.send(client, { t: 'pending_all', pending: sessions.pendingSnapshot() });
   ws.on('message', (raw) => {
     let msg: ClientMessage;
     try {

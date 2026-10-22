@@ -228,6 +228,10 @@ export function handleServerMessage(msg: ServerMessage) {
         events: s.events[msg.sessionId] ? s.events : { ...s.events, [msg.sessionId]: [] },
       }));
       break;
+    case 'pending_all':
+      // Sent on every (re)connect and authoritative: prompts answered elsewhere while we were offline drop out.
+      set({ pending: msg.pending });
+      break;
     case 'services':
       set({ services: msg.services });
       break;

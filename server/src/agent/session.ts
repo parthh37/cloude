@@ -27,11 +27,13 @@ import type {
 import { config, playwrightMcp } from '../config.js';
 import { db, now } from '../db.js';
 import { hub } from '../hub.js';
+import { applyInfra } from '../infra/session-hook.js';
 import { projects } from '../projects.js';
 import { buildEnv, settings } from '../settings.js';
 import { assertWithinBudget, ingestRateLimitEvent, ingestUsageResponse, recordTurn } from '../usage.js';
 import { AsyncQueue } from '../util/async-queue.js';
 import { HttpError } from '../util/paths.js';
+import { ActivityTracker } from './activity.js';
 import { CLOUDE_READONLY_TOOLS, createCloudeMcp } from './cloude-mcp.js';
 import { guardHooks } from './guard.js';
 import { cloudeSystemPrompt } from './system-prompt.js';
@@ -113,6 +115,9 @@ function supportsAdaptiveThinking(model: string) {
 
 let lastPlanUsageAt = 0;
 
+/** Activity is broadcast to every browser, so a busy session sends at most one update per this interval. */
+const ACTIVITY_MIN_INTERVAL_MS = 1000;
+
 interface Pending {
   req: PermissionRequest;
   resolve: (r: PermissionResponse) => void;
@@ -123,6 +128,13 @@ export class AgentSession {
   private input: AsyncQueue<SDKUserMessage> | null = null;
   private abort: AbortController | null = null;
   private pending = new Map<string, Pending>();
+  private activity = new ActivityTracker(
+    () => this.info.cwd,
+    () => this.activityChanged(),
+  );
+  private activityTimer: NodeJS.Timeout | null = null;
+  private activitySentAt = 0;
+  private disposed = false;
   private ownUuids = new Set<string>();
   private idleTimer: NodeJS.Timeout | null = null;
   private authProblem = false;
@@ -151,6 +163,7 @@ export class AgentSession {
       status: r.status,
       started: !!r.started,
       alive: this.alive,
+      activity: this.activity.current,
       archived: !!r.archived,
       totalCostUsd: r.total_cost_usd,
       lastSeq: r.last_seq,
@@ -328,6 +341,7 @@ export class AgentSession {
         if (this.stderrTail.length > 50) this.stderrTail.shift();
       },
     };
+    applyInfra(options, this.row); // model routing, sandboxes, semantic search — see server/src/infra
 
     const q = query({ prompt: input, options });
     this.q = q;
@@ -363,6 +377,7 @@ export class AgentSession {
         this.abort = null;
       }
       for (const id of [...this.pending.keys()]) this.settle(id, { decision: 'deny', message: 'Session ended' }, true);
+      this.activity.clear();
       if (this.row.status !== 'error') this.save({ status: 'idle' });
       else hub.broadcast({ t: 'session', session: this.toJSON() });
     }
@@ -372,7 +387,22 @@ export class AgentSession {
     hub.toSession(this.id, { t: 'live', sessionId: this.id, data });
   }
 
+  /** Leading edge goes out at once; anything else within the interval is coalesced into one trailing update. */
+  private activityChanged() {
+    if (this.activityTimer || this.disposed) return;
+    const flush = () => {
+      this.activityTimer = null;
+      if (this.disposed) return;
+      this.activitySentAt = Date.now();
+      hub.broadcast({ t: 'session', session: this.toJSON() });
+    };
+    const wait = this.activitySentAt + ACTIVITY_MIN_INTERVAL_MS - Date.now();
+    if (wait <= 0) flush();
+    else this.activityTimer = setTimeout(flush, wait);
+  }
+
   private handle(msg: SDKMessage) {
+    this.activity.observe(msg);
     switch (msg.type) {
       case 'stream_event':
       case 'tool_progress':
@@ -587,6 +617,8 @@ export class AgentSession {
   };
 
   async destroy() {
+    this.disposed = true; // a trailing activity update must not resurrect a deleted session in the browsers
+    if (this.activityTimer) clearTimeout(this.activityTimer);
     this.stop();
     const project = projects.get(this.row.project_id);
     if (this.row.started && project) await deleteClaudeTranscript(this.id, { dir: project.path }).catch(() => {});
@@ -668,6 +700,16 @@ class SessionManager {
 
   stopAll() {
     for (const s of this.sessions.values()) s.stop();
+  }
+
+  /** Every open prompt, by session. Only in-memory sessions can have one (prompts die with their process). */
+  pendingSnapshot(): Record<string, PermissionRequest[]> {
+    const out: Record<string, PermissionRequest[]> = {};
+    for (const s of this.sessions.values()) {
+      const requests = s.pendingRequests();
+      if (requests.length) out[s.id] = requests;
+    }
+    return out;
   }
 }
 
