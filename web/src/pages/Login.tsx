@@ -7,6 +7,7 @@ import { useStore } from '../lib/store';
 
 export function Login() {
   const user = useStore((s) => s.user);
+  const needsAdmin = useStore((s) => s.setup?.needsAdmin);
   const [params] = useSearchParams();
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -14,6 +15,7 @@ export function Login() {
   const [busy, setBusy] = useState(false);
   const next = params.get('next') || '/';
 
+  if (needsAdmin) return <Navigate to="/setup" replace />;
   if (user) {
     // /api/* "next" targets (preview hand-off) are server routes, not SPA routes.
     if (next.startsWith('/api/')) window.location.href = next;
@@ -62,8 +64,8 @@ export function Login() {
           </Button>
         </form>
         <p className="mt-6 text-xs text-ink-3">
-          First run? The admin password is in the server log, or in <code className="font-mono">initial-admin-password.txt</code> in Cloude's data
-          directory.
+          Forgot your password? Set <code className="font-mono">CLOUDE_ADMIN_PASSWORD</code> and <code className="font-mono">CLOUDE_RESET_ADMIN_PASSWORD=true</code>{' '}
+          on the server and restart Cloude.
         </p>
       </div>
       <div className="drift mt-16 w-full max-w-sm rounded-full" data-state="running" aria-hidden />

@@ -18,6 +18,7 @@ Self-hosted web workbench that runs Claude Code (via `@anthropic-ai/claude-agent
 - Outward-facing Cloude MCP tools (`publish`, `deploy`, `open_tunnel`) use `permission_policy: 'always_ask'`. Keep it that way — it's what makes "Full access" mode safe to offer.
 - `agent/guard.ts` is a PreToolUse hook and applies in all permission modes, including bypass.
 - Preview hosts are untrusted. Never let Cloude cookies reach them (see `stripCloudeCookies`), and keep `isAllowedOrigin` on every state-changing request and WS upgrade.
+- A fresh server is claimed in the browser (`/setup`) with a one-time setup code (`setup.ts`). Never exempt "local" requests from the code: behind Caddy every request arrives from loopback. `claimAdmin` stays synchronous so the "no users yet" check and the INSERT can't interleave.
 - Events are persisted (`session_events`) and replayed by seq. Stream deltas and tool progress are live-only (`t: 'live'`).
 
 ## Web gotchas

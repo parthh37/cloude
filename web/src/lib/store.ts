@@ -7,6 +7,7 @@ import type {
   ServiceState,
   Session,
   SessionEvent,
+  SetupStatus,
   SystemStatus,
   Tunnel,
 } from '../../../shared/protocol';
@@ -32,6 +33,7 @@ export interface Toast {
 interface State {
   user: { id: string; username: string } | null;
   authChecked: boolean;
+  setup: SetupStatus | null;
   status: SystemStatus | null;
   projects: Project[];
   sessions: Record<string, Session>;
@@ -51,6 +53,7 @@ interface State {
 export const useStore = create<State>(() => ({
   user: null,
   authChecked: false,
+  setup: null,
   status: null,
   projects: [],
   sessions: {},

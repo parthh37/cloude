@@ -1,7 +1,8 @@
 # Cloude production stack: the workbench + Caddy for automatic HTTPS.
 #
-#   cp .env.example .env   # set CLOUDE_DOMAIN, CLOUDE_ADMIN_PASSWORD, ACME_EMAIL
+#   cp .env.example .env   # set CLOUDE_DOMAIN, ACME_EMAIL, CLOUDE_SETUP_TOKEN
 #   docker compose up -d --build
+#   open https://<CLOUDE_DOMAIN>/setup#code=<CLOUDE_SETUP_TOKEN>
 #
 # Both services use host networking on purpose: apps that Claude starts (dev
 # servers, `docker run -p 127.0.0.1:…` deployments) listen on the host's

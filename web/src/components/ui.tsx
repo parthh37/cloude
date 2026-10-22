@@ -6,10 +6,12 @@ import type { SessionStatus } from '../../../shared/protocol';
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'attention';
 
 export const Button = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: 'sm' | 'md'; icon?: ReactNode; busy?: boolean }>(
-  function Button({ variant = 'secondary', size = 'md', icon, busy, className, children, disabled, ...rest }, ref) {
+  // type defaults to "button": a bare <button> inside a form is a submit button, so Enter would trigger the first one (e.g. "Back").
+  function Button({ variant = 'secondary', size = 'md', icon, busy, className, children, disabled, type = 'button', ...rest }, ref) {
     return (
       <button
         ref={ref}
+        type={type}
         disabled={disabled || busy}
         className={clsx(
           'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none',

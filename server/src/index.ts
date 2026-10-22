@@ -14,14 +14,17 @@ import { hub } from './hub.js';
 import { handlePreviewRequest, handlePreviewUpgrade, registerPreviewRoutes } from './proxy/preview-proxy.js';
 import { registerHostingRoutes } from './routes/hosting.js';
 import { registerProjectAndSessionRoutes } from './routes/sessions.js';
+import { registerSetupRoutes } from './routes/setup.js';
 import { registerSystemRoutes } from './routes/system.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 import { services } from './services/service-manager.js';
+import { initSetup, printSetupBanner } from './setup.js';
 import { tunnels } from './services/tunnels.js';
 import { terminals } from './terminal/terminals.js';
 import { HttpError } from './util/paths.js';
 
 ensureAdmin();
+initSetup();
 
 // One HTTP server, three tenants: the preview proxy (decided by Host header),
 // WebSockets (upgrade), and the Fastify app for everything else.
@@ -48,6 +51,7 @@ app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
 });
 
 registerAuth(app);
+registerSetupRoutes(app);
 registerSystemRoutes(app);
 registerPreviewRoutes(app);
 registerProjectAndSessionRoutes(app);
@@ -126,6 +130,7 @@ console.log(`\n  ☁️  Cloude ${config.version} listening on http://${config.h
 console.log(`     public URL:     ${config.publicUrl}`);
 console.log(`     previews:       ${config.previewDomain ? `https://p-<port>.${config.previewDomain}` : `${config.publicUrl}/preview/<port>/ (set CLOUDE_PREVIEW_DOMAIN for subdomains)`}`);
 console.log(`     workspaces:     ${config.workspacesDir}\n`);
+printSetupBanner();
 
 void services.bootstrap();
 

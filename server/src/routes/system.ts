@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import type { AppSettings, SystemStatus } from '../../../shared/protocol.js';
+import type { AppSettings, ClaudeCredentialKind, ClaudeLoginStart, SystemStatus } from '../../../shared/protocol.js';
 import { sessions } from '../agent/session.js';
+import { cancelClaudeLogin, finishClaudeLogin, startClaudeLogin } from '../claude-login.js';
 import { config } from '../config.js';
-import { AUTH_SECRET_KEYS, secrets, settings } from '../settings.js';
+import { AUTH_SECRET_KEYS, secrets, setClaudeCredential, settings } from '../settings.js';
+import { HttpError } from '../util/paths.js';
 import { toolVersion } from '../util/exec.js';
 
 let toolchainCache: { at: number; value: Record<string, string | null> } | null = null;
@@ -75,6 +77,23 @@ export function registerSystemRoutes(app: FastifyInstance) {
       disk,
       activeSessions: sessions.activeCount(),
     };
+  });
+
+  // Claude account: "Sign in with Claude" (drives `claude setup-token`) or a pasted token/key.
+  app.post('/api/claude/login', async (): Promise<ClaudeLoginStart> => startClaudeLogin());
+  app.post<{ Params: { id: string }; Body: { code?: string } }>('/api/claude/login/:id', async (req) => {
+    setClaudeCredential('CLAUDE_CODE_OAUTH_TOKEN', await finishClaudeLogin(req.params.id, String(req.body?.code ?? '')));
+    return { claudeAuth: claudeAuth() };
+  });
+  app.delete<{ Params: { id: string } }>('/api/claude/login/:id', async (req) => {
+    cancelClaudeLogin(req.params.id);
+    return { ok: true };
+  });
+  app.put<{ Body: { kind?: ClaudeCredentialKind; value?: string } }>('/api/claude/credential', async (req) => {
+    const kind = req.body?.kind;
+    if (!kind || !(AUTH_SECRET_KEYS as readonly string[]).includes(kind)) throw new HttpError(400, 'Unknown credential type');
+    setClaudeCredential(kind, String(req.body?.value ?? ''));
+    return { claudeAuth: claudeAuth() };
   });
 
   app.get('/api/settings', async () => ({ settings: settings.get() }));

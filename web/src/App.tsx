@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router';
-import type { Project, Route as PublishedRoute, ServiceState, Session, SystemStatus, Tunnel } from '../../shared/protocol';
+import type { Project, Route as PublishedRoute, ServiceState, Session, SetupStatus, SystemStatus, Tunnel } from '../../shared/protocol';
 import { Toaster } from './components/Toaster';
 import { Spinner } from './components/ui';
 import { api } from './lib/api';
@@ -10,6 +10,9 @@ import { Dashboard } from './pages/Dashboard';
 import { Login } from './pages/Login';
 import { SettingsPage } from './pages/Settings';
 import { Workspace } from './pages/Workspace';
+
+// Seen once per server, so keep it out of the main bundle.
+const Setup = lazy(() => import('./pages/Setup').then((m) => ({ default: m.Setup })));
 
 /** Load everything the shell needs once signed in, and keep the socket open. */
 export async function bootstrap() {
@@ -28,10 +31,9 @@ export async function bootstrap() {
 
 function useAuth() {
   useEffect(() => {
-    api
-      .get<{ user: { id: string; username: string } | null }>('/api/auth/me')
-      .then(async ({ user }) => {
-        useStore.setState({ user, authChecked: true });
+    Promise.all([api.get<SetupStatus>('/api/setup'), api.get<{ user: { id: string; username: string } | null }>('/api/auth/me')])
+      .then(async ([setup, { user }]) => {
+        useStore.setState({ setup, user, authChecked: true });
         if (user) await bootstrap();
       })
       .catch(() => useStore.setState({ user: null, authChecked: true }));
@@ -52,15 +54,18 @@ function useTitleBadge() {
   }, [waiting]);
 }
 
+const Loading = () => (
+  <div className="grid h-full place-items-center text-ink-3">
+    <Spinner className="size-6" />
+  </div>
+);
+
 function Gate({ children }: { children: React.ReactNode }) {
-  const { user, authChecked } = useStore();
+  const { user, authChecked, setup } = useStore();
   const loc = useLocation();
-  if (!authChecked)
-    return (
-      <div className="grid h-full place-items-center text-ink-3">
-        <Spinner className="size-6" />
-      </div>
-    );
+  if (!authChecked) return <Loading />;
+  // A fresh server has no account to sign in to; an unfinished one resumes the wizard.
+  if (setup?.needsAdmin || (user && setup && !setup.completed)) return <Navigate to="/setup" replace />;
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   return <>{children}</>;
 }
@@ -72,6 +77,14 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route
+          path="/setup"
+          element={
+            <Suspense fallback={<Loading />}>
+              <Setup />
+            </Suspense>
+          }
+        />
         <Route
           path="/"
           element={

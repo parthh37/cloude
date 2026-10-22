@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
@@ -13,7 +11,11 @@ export interface AuthUser {
   username: string;
 }
 
-/** Create the first admin on boot. Password from env, else generated and logged once. */
+/**
+ * Create the first admin on boot from CLOUDE_ADMIN_PASSWORD (scripted installs).
+ * Without it, the server stays unclaimed and the browser setup wizard creates
+ * the account instead — see setup.ts.
+ */
 export function ensureAdmin() {
   const count = (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
   if (count > 0) {
@@ -24,23 +26,29 @@ export function ensureAdmin() {
     }
     return;
   }
-  const password = config.adminPassword ?? randomToken(12);
+  if (!config.adminPassword) return;
   db.prepare('INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)').run(
     newId(),
     config.adminUser,
-    hashPassword(password),
+    hashPassword(config.adminPassword),
     now(),
   );
-  if (!config.adminPassword) {
-    const file = path.join(config.dataDir, 'initial-admin-password.txt');
-    fs.writeFileSync(file, `${config.adminUser}\n${password}\n`, { mode: 0o600 });
-    console.log('\n' + '='.repeat(64));
-    console.log(` Cloude admin account created`);
-    console.log(`   username: ${config.adminUser}`);
-    console.log(`   password: ${password}`);
-    console.log(`   (also saved to ${file} — change it in Settings)`);
-    console.log('='.repeat(64) + '\n');
-  }
+}
+
+/**
+ * Why `password` is unacceptable for the admin account, or null if it's fine.
+ * Shown verbatim to the user, so phrase it as advice.
+ *
+ * Applies to the account created in the setup wizard and to password changes.
+ * Remember what this account can do: whoever has it is effectively root on
+ * this server (sudo, the Docker socket, every secret), and the login page is
+ * on the public internet — rate-limited to 10 tries per IP per 15 minutes.
+ */
+export function passwordProblem(password: string, username: string): string | null {
+  // TODO(you): decide the admin password policy (5-10 lines).
+  void username;
+  if (password.length < 8) return 'Use at least 8 characters';
+  return null;
 }
 
 export function parseCookies(header: string | undefined): Record<string, string> {
@@ -107,7 +115,8 @@ export function isSafeRedirectPath(p: string): boolean {
 }
 
 const attempts = new Map<string, { count: number; resetAt: number }>();
-function rateLimited(ip: string): boolean {
+/** Counts an attempt for `ip`; true once it has made more than 10 in 15 minutes. */
+export function rateLimited(ip: string): boolean {
   const entry = attempts.get(ip);
   const t = now();
   if (!entry || entry.resetAt < t) {
@@ -118,7 +127,16 @@ function rateLimited(ip: string): boolean {
   return entry.count > 10;
 }
 
-function setSessionCookie(reply: FastifyReply, sid: string) {
+/** Sign `userId` in on this browser: create a login session and set its cookie. */
+export function startLoginSession(req: FastifyRequest, reply: FastifyReply, userId: string) {
+  const sid = randomToken();
+  db.prepare('INSERT INTO auth_sessions (id, user_id, created_at, expires_at, user_agent) VALUES (?, ?, ?, ?, ?)').run(
+    sid,
+    userId,
+    now(),
+    now() + config.sessionTtlMs,
+    String(req.headers['user-agent'] ?? '').slice(0, 200),
+  );
   reply.setCookie(SESSION_COOKIE, sid, {
     httpOnly: true,
     sameSite: 'lax',
@@ -135,7 +153,7 @@ declare module 'fastify' {
 }
 
 // preview-auth checks the session itself so it can redirect to /login instead of returning 401.
-const PUBLIC_API = new Set(['/api/auth/login', '/api/auth/me', '/api/health', '/api/preview-auth', '/api/tls-ask']);
+const PUBLIC_API = new Set(['/api/auth/login', '/api/auth/me', '/api/health', '/api/preview-auth', '/api/tls-ask', '/api/setup', '/api/setup/admin']);
 
 export function registerAuth(app: FastifyInstance) {
   app.decorateRequest('user', null);
@@ -160,15 +178,7 @@ export function registerAuth(app: FastifyInstance) {
       return reply.code(401).send({ error: 'Invalid username or password' });
     }
     attempts.delete(req.ip);
-    const sid = randomToken();
-    db.prepare('INSERT INTO auth_sessions (id, user_id, created_at, expires_at, user_agent) VALUES (?, ?, ?, ?, ?)').run(
-      sid,
-      row.id,
-      now(),
-      now() + config.sessionTtlMs,
-      String(req.headers['user-agent'] ?? '').slice(0, 200),
-    );
-    setSessionCookie(reply, sid);
+    startLoginSession(req, reply, row.id);
     return { user: { id: row.id, username: row.username } };
   });
 
@@ -183,7 +193,8 @@ export function registerAuth(app: FastifyInstance) {
 
   app.put<{ Body: { currentPassword: string; newPassword: string } }>('/api/auth/password', async (req, reply) => {
     const { currentPassword, newPassword } = req.body ?? ({} as any);
-    if (!newPassword || String(newPassword).length < 8) return reply.code(400).send({ error: 'Password must be at least 8 characters' });
+    const problem = passwordProblem(String(newPassword ?? ''), req.user!.username);
+    if (problem) return reply.code(400).send({ error: problem });
     const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user!.id) as { password_hash: string };
     if (!verifyPassword(String(currentPassword ?? ''), row.password_hash)) {
       return reply.code(403).send({ error: 'Current password is incorrect' });

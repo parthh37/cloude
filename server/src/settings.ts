@@ -1,7 +1,8 @@
-import type { AppSettings, SecretEntry } from '../../shared/protocol.js';
+import type { AppSettings, ClaudeCredentialKind, SecretEntry } from '../../shared/protocol.js';
 import { config } from './config.js';
 import { decrypt, encrypt } from './crypto.js';
 import { db, now } from './db.js';
+import { HttpError } from './util/paths.js';
 
 const DEFAULTS: AppSettings = {
   defaultModel: 'claude-opus-5-5',
@@ -17,7 +18,8 @@ export const settings = {
   get(): AppSettings {
     const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
     const stored: Record<string, unknown> = {};
-    for (const r of rows) stored[r.key] = JSON.parse(r.value);
+    // The table also holds internal state (e.g. setup.completedAt); only user settings go out.
+    for (const r of rows) if (r.key in DEFAULTS) stored[r.key] = JSON.parse(r.value);
     return { ...DEFAULTS, ...stored } as AppSettings;
   },
   update(patch: Partial<AppSettings>): AppSettings {
@@ -31,7 +33,7 @@ export const settings = {
 };
 
 /** Keys with special meaning that the UI surfaces in the "Claude account" panel. */
-export const AUTH_SECRET_KEYS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'] as const;
+export const AUTH_SECRET_KEYS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'] as const satisfies readonly ClaudeCredentialKind[];
 
 const SECRET_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -71,6 +73,18 @@ export const secrets = {
   },
 };
 
+/**
+ * Save the credential sessions should use and drop the other kind, so switching
+ * from an API key to a subscription (or back) actually takes effect — Claude Code
+ * prefers ANTHROPIC_API_KEY whenever both are set.
+ */
+export function setClaudeCredential(kind: ClaudeCredentialKind, value: string) {
+  const v = value.trim();
+  if (!v || /\s/.test(v)) throw new HttpError(400, "That doesn't look like a valid key or token");
+  secrets.set(null, kind, v);
+  for (const other of AUTH_SECRET_KEYS) if (other !== kind) secrets.delete(null, other);
+}
+
 function safeDecrypt(blob: string) {
   try {
     return decrypt(blob);
@@ -90,7 +104,7 @@ export function buildEnv(projectId: string | null, extra: Record<string, string>
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined) continue;
     // Never leak Cloude's own credentials into user code.
-    if (k === 'CLOUDE_ADMIN_PASSWORD' || k === 'CLOUDE_SECRET') continue;
+    if (k === 'CLOUDE_ADMIN_PASSWORD' || k === 'CLOUDE_SECRET' || k === 'CLOUDE_SETUP_TOKEN') continue;
     base[k] = v;
   }
   const merged: Record<string, string> = {
