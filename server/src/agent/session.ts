@@ -23,7 +23,10 @@ import type {
   SessionEvent,
   SessionEventKind,
   SessionStatus,
+  Isolation,
+  Worktree,
 } from '../../../shared/protocol.js';
+import { bus } from '../bus.js';
 import { config, playwrightMcp } from '../config.js';
 import { db, now } from '../db.js';
 import { hub } from '../hub.js';
@@ -34,9 +37,11 @@ import { assertWithinBudget, ingestRateLimitEvent, ingestUsageResponse, recordTu
 import { AsyncQueue } from '../util/async-queue.js';
 import { HttpError } from '../util/paths.js';
 import { ActivityTracker } from './activity.js';
+import { worktrees } from '../worktrees.js';
 import { CLOUDE_READONLY_TOOLS, createCloudeMcp } from './cloude-mcp.js';
 import { guardHooks } from './guard.js';
 import { cloudeSystemPrompt } from './system-prompt.js';
+import { WORKBENCH_AUTO_TOOLS, workbenchHooks, workbenchMcpServers, workbenchPrompt } from './workbench.js';
 
 interface SessionRow {
   id: string;
@@ -141,8 +146,17 @@ export class AgentSession {
   private resumedRun = false;
   private stderrTail: string[] = [];
   info: SessionInfo = {};
+  /** The session's private git worktree, when it was started with isolation. */
+  worktree: Worktree | null;
 
-  constructor(public row: SessionRow) {}
+  constructor(public row: SessionRow) {
+    this.worktree = worktrees.forOwner('session', row.id);
+  }
+
+  /** Directory Claude works in: the session's worktree, or the project root. */
+  cwd(projectPath: string) {
+    return this.worktree?.path ?? projectPath;
+  }
 
   get id() {
     return this.row.id;
@@ -170,6 +184,7 @@ export class AgentSession {
       lastError: r.last_error,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      worktree: this.worktree,
     };
   }
 
@@ -183,6 +198,7 @@ export class AgentSession {
       this.id,
     );
     if (broadcast) hub.broadcast({ t: 'session', session: this.toJSON() });
+    bus.emit('session', this.toJSON());
   }
 
   private setStatus(status: SessionStatus) {
@@ -303,10 +319,11 @@ export class AgentSession {
     const input = new AsyncQueue<SDKUserMessage>();
     const abort = new AbortController();
     const allowed: string[] = JSON.parse(this.row.allowed_tools || '[]');
+    const env = buildEnv(project.id, { CLAUDE_AGENT_SDK_CLIENT_APP: `cloude/${config.version}` });
 
     const options: Options = {
       ...(config.claudePath ? { pathToClaudeCodeExecutable: config.claudePath } : {}),
-      cwd: project.path,
+      cwd: this.cwd(project.path),
       model,
       permissionMode: this.row.permission_mode,
       allowDangerouslySkipPermissions: true, // lets the user switch to bypass mode from the UI mid-session
@@ -322,20 +339,20 @@ export class AgentSession {
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
-        append: cloudeSystemPrompt(project, s.enablePlaywright, s.appendSystemPrompt),
+        append: cloudeSystemPrompt(project, s.enablePlaywright, s.appendSystemPrompt) + workbenchPrompt(project, this.worktree),
       },
-      env: buildEnv(project.id, { CLAUDE_AGENT_SDK_CLIENT_APP: `cloude/${config.version}` }),
+      env,
       mcpServers: {
-        cloude: createCloudeMcp(project, this.id),
+        cloude: createCloudeMcp(project, this.id, this.worktree),
         ...(s.enablePlaywright
           ? { playwright: { type: 'stdio' as const, ...playwrightMcp } }
           : {}),
-        ...(s.mcpServers as Options['mcpServers']),
+        ...workbenchMcpServers(project, this.worktree, s.mcpServers),
       },
-      allowedTools: [...CLOUDE_READONLY_TOOLS, ...allowed],
+      allowedTools: [...CLOUDE_READONLY_TOOLS, ...WORKBENCH_AUTO_TOOLS, ...allowed],
       canUseTool: this.canUseTool,
       onElicitation: this.onElicitation,
-      hooks: guardHooks(),
+      hooks: workbenchHooks(guardHooks(), { sessionId: this.id, projectId: project.id, cwd: this.cwd(project.path) }),
       stderr: (d) => {
         this.stderrTail.push(d);
         if (this.stderrTail.length > 50) this.stderrTail.shift();
@@ -621,7 +638,15 @@ export class AgentSession {
     if (this.activityTimer) clearTimeout(this.activityTimer);
     this.stop();
     const project = projects.get(this.row.project_id);
-    if (this.row.started && project) await deleteClaudeTranscript(this.id, { dir: project.path }).catch(() => {});
+    if (this.row.started && project) await deleteClaudeTranscript(this.id, { dir: this.cwd(project.path) }).catch(() => {});
+    // Work is never lost: remove() snapshots uncommitted changes and keeps unmerged branches.
+    if (project && this.worktree) await worktrees.remove(project.id, this.worktree.id).catch(() => {});
+  }
+
+  /** Re-read the worktree link (after it was created, removed, or reassigned). */
+  refreshWorktree() {
+    this.worktree = worktrees.forOwner('session', this.id);
+    hub.broadcast({ t: 'session', session: this.toJSON() });
   }
 }
 
@@ -663,7 +688,19 @@ class SessionManager {
     return rows.map((r) => this.get(r.id).toJSON()).filter((s) => includeArchived || !s.archived);
   }
 
-  create(projectId: string, opts: { title?: string; model?: string | null; permissionMode?: PermissionMode; effort?: EffortLevel | null }): AgentSession {
+  async create(
+    projectId: string,
+    opts: {
+      title?: string;
+      model?: string | null;
+      permissionMode?: PermissionMode;
+      effort?: EffortLevel | null;
+      isolation?: Isolation;
+      /** Worktree name / branch suffix (defaults to the title). */
+      branch?: string;
+      baseBranch?: string;
+    },
+  ): Promise<AgentSession> {
     projects.require(projectId);
     const s = settings.get();
     const id = crypto.randomUUID();
@@ -681,6 +718,14 @@ class SessionManager {
       t,
       t,
     );
+    if (opts.isolation === 'worktree') {
+      try {
+        await worktrees.create(projectId, { name: opts.branch || opts.title, base: opts.baseBranch, ownerType: 'session', ownerId: id });
+      } catch (err) {
+        db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+        throw err;
+      }
+    }
     const session = this.get(id);
     hub.broadcast({ t: 'session', session: session.toJSON() });
     return session;
@@ -692,6 +737,7 @@ class SessionManager {
     db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
     this.sessions.delete(id);
     hub.broadcast({ t: 'session_deleted', sessionId: id });
+    bus.emit('session:deleted', id);
   }
 
   activeCount() {

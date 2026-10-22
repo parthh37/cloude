@@ -16,6 +16,7 @@ import type {
   Tunnel,
   UsageLive,
 } from '../../../shared/protocol';
+import { handleWorkbenchMessage } from './workbench';
 
 /** In-flight streaming text for a session, keyed by `${messageId}:${blockIndex}`. */
 export interface DraftBlock {
@@ -258,5 +259,7 @@ export function handleServerMessage(msg: ServerMessage) {
     case 'error':
       toast('error', msg.message);
       break;
+    default:
+      handleWorkbenchMessage(msg);
   }
 }

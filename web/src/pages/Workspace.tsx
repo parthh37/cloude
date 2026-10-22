@@ -1,28 +1,34 @@
 import clsx from 'clsx';
-import { ArrowLeft, FolderTree, GitBranch, MessageSquare, PanelRightClose, Plus, Rocket, SquareTerminal, X } from 'lucide-react';
+import { ArrowLeft, Brain, FolderTree, GitBranch, KanbanSquare, MessageSquare, Monitor, PanelRightClose, Plus, Rocket, SquareTerminal, X } from 'lucide-react';
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { Project, Session } from '../../../shared/protocol';
 import { ActivityLine } from '../components/SessionLive';
 import { Shell } from '../components/Shell';
-import { Button, Empty, IconButton, Spinner, StatusDot, Wordmark } from '../components/ui';
+import { Button, Empty, IconButton, Spinner, StatusDot, Toggle, Wordmark } from '../components/ui';
 import { api, ApiError } from '../lib/api';
 import { money, timeAgo } from '../lib/format';
 import { toast, upsertSessions, useStore } from '../lib/store';
+import { ISOLATION_KEY, scopedProject } from '../lib/workbench';
 import { AppsPanel } from '../workspace/AppsPanel';
+import { BoardView } from '../workspace/BoardView';
 import { ChatView } from '../workspace/ChatView';
 import { GitPanel } from '../workspace/GitPanel';
+import { MemoryView } from '../workspace/MemoryView';
 
 // Editor (CodeMirror) and terminal (xterm) are the heaviest parts of the bundle; load them on first use.
 const FilesPanel = lazy(() => import('../workspace/FilesPanel').then((m) => ({ default: m.FilesPanel })));
 const TerminalPanel = lazy(() => import('../workspace/TerminalPanel').then((m) => ({ default: m.TerminalPanel })));
+// noVNC only loads when someone opens the desktop.
+const DesktopPanel = lazy(() => import('../workspace/DesktopPanel').then((m) => ({ default: m.DesktopPanel })));
 
-type Panel = 'files' | 'terminal' | 'apps' | 'git';
+type Panel = 'files' | 'terminal' | 'apps' | 'git' | 'desktop';
 const PANELS: { id: Panel; label: string; icon: typeof FolderTree }[] = [
   { id: 'files', label: 'Files', icon: FolderTree },
   { id: 'terminal', label: 'Terminal', icon: SquareTerminal },
   { id: 'apps', label: 'Apps', icon: Rocket },
   { id: 'git', label: 'Git', icon: GitBranch },
+  { id: 'desktop', label: 'Desktop', icon: Monitor },
 ];
 
 function useMedia(query: string) {
@@ -36,16 +42,35 @@ function useMedia(query: string) {
   return match;
 }
 
-function SessionList({ project, sessions, activeId, onPick }: { project: Project; sessions: Session[]; activeId?: string; onPick: () => void }) {
+function SessionList({
+  project,
+  sessions,
+  activeId,
+  view,
+  onPick,
+}: {
+  project: Project;
+  sessions: Session[];
+  activeId?: string;
+  view: 'session' | 'board' | 'memory';
+  onPick: () => void;
+}) {
   const navigate = useNavigate();
   const [showArchived, setShowArchived] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Isolated sessions get their own git worktree + branch, so parallel sessions never edit the same files.
+  const [isolated, setIsolated] = useState(() => localStorage.getItem(ISOLATION_KEY) !== 'shared');
   const visible = sessions.filter((s) => (showArchived ? s.archived : !s.archived)).sort((a, b) => b.updatedAt - a.updatedAt);
+
+  function setIsolation(v: boolean) {
+    setIsolated(v);
+    localStorage.setItem(ISOLATION_KEY, v ? 'worktree' : 'shared');
+  }
 
   async function create() {
     setCreating(true);
     try {
-      const { session } = await api.post<{ session: Session }>(`/api/projects/${project.id}/sessions`, {});
+      const { session } = await api.post<{ session: Session }>(`/api/projects/${project.id}/sessions`, { isolation: isolated ? 'worktree' : 'shared' });
       upsertSessions([session]);
       navigate(`/p/${project.id}/s/${session.id}`);
       onPick();
@@ -68,6 +93,32 @@ function SessionList({ project, sessions, activeId, onPick }: { project: Project
         <Button variant="primary" className="mt-3 w-full" icon={<Plus className="size-4" />} onClick={create} busy={creating}>
           New session
         </Button>
+        <label className="mt-2 flex items-center justify-between gap-2 px-0.5 text-xs text-ink-2" title="Each isolated session works on its own branch in its own git worktree">
+          <span className="inline-flex items-center gap-1">
+            <GitBranch className="size-3.5" /> Isolated worktree
+          </span>
+          <Toggle checked={isolated} onChange={setIsolation} label="Isolated worktree" />
+        </label>
+        <div className="mt-3 grid grid-cols-2 gap-1">
+          {(
+            [
+              ['board', 'Board', KanbanSquare],
+              ['memory', 'Memory', Brain],
+            ] as const
+          ).map(([id, label, Icon]) => (
+            <Link
+              key={id}
+              to={`/p/${project.id}/${id}`}
+              onClick={onPick}
+              className={clsx(
+                'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium transition-colors',
+                view === id ? 'bg-ink text-ground' : 'text-ink-2 hover:bg-surface-2',
+              )}
+            >
+              <Icon className="size-3.5" /> {label}
+            </Link>
+          ))}
+        </div>
       </div>
       <nav className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Sessions">
         {visible.length === 0 && <p className="px-2 py-6 text-center text-sm text-ink-3">{showArchived ? 'No archived sessions.' : 'No sessions yet.'}</p>}
@@ -87,9 +138,15 @@ function SessionList({ project, sessions, activeId, onPick }: { project: Project
               {s.status === 'running' || s.status === 'starting' ? (
                 <ActivityLine session={s} dot={false} />
               ) : (
-                <span className="block text-xs text-ink-3">
+                <span className="block truncate text-xs text-ink-3">
                   {s.status === 'awaiting_input' ? <span className="font-semibold text-break-ink">Needs you</span> : timeAgo(s.updatedAt)}
                   {s.totalCostUsd > 0 && ` · ${money(s.totalCostUsd)}`}
+                  {s.worktree && (
+                    <span className="text-dawn-ink" title={s.worktree.branch}>
+                      {' · '}
+                      <GitBranch className="inline size-3 align-[-2px]" /> {s.worktree.id}
+                    </span>
+                  )}
                 </span>
               )}
             </span>
@@ -107,6 +164,7 @@ export function Workspace() {
   const params = useParams();
   const projectId = params.projectId!;
   const sessionId = /^s\/([\w-]+)/.exec(params['*'] ?? '')?.[1];
+  const view: 'session' | 'board' | 'memory' = params['*'] === 'board' ? 'board' : params['*'] === 'memory' ? 'memory' : 'session';
   const navigate = useNavigate();
   const project = useStore((s) => s.projects.find((p) => p.id === projectId));
   const allSessions = useStore((s) => s.sessions);
@@ -144,10 +202,13 @@ export function Workspace() {
 
   // Land on the most recent session when none is selected.
   useEffect(() => {
-    if (sessionId || !desktop) return;
+    if (sessionId || !desktop || view !== 'session') return;
     const latest = sessions.filter((s) => !s.archived).sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (latest) navigate(`/p/${projectId}/s/${latest.id}`, { replace: true });
-  }, [sessionId, sessions.length, desktop]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId, sessions.length, desktop, view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Files / Git / Terminal follow the selected session into its worktree.
+  const scoped = useMemo(() => (project ? scopedProject(project, session) : undefined), [project, session?.worktree?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!project)
     return (
@@ -156,9 +217,14 @@ export function Workspace() {
       </div>
     );
 
-  const sidebar = <SessionList project={project} sessions={sessions} activeId={sessionId} onPick={() => setDrawer(false)} />;
+  const sidebar = <SessionList project={project} sessions={sessions} activeId={sessionId} view={view} onPick={() => setDrawer(false)} />;
+  const scope = scoped ?? project;
 
-  const chat = session ? (
+  const chat = view === 'board' ? (
+    <BoardView project={project} onOpenSessions={() => setDrawer(true)} />
+  ) : view === 'memory' ? (
+    <MemoryView project={project} onOpenSessions={() => setDrawer(true)} />
+  ) : session ? (
     <ChatView session={session} project={project} onOpenSessions={() => setDrawer(true)} />
   ) : (
     <div className="flex h-full flex-col">
@@ -188,10 +254,12 @@ export function Workspace() {
       {PANELS.map(({ id }) =>
         visited.has(id) ? (
           <div key={id} className={clsx('h-full min-h-0', activePanel === id ? 'flex flex-col' : 'hidden')}>
-            {id === 'files' && <FilesPanel project={project} />}
-            {id === 'terminal' && <TerminalPanel project={project} visible={activePanel === 'terminal'} />}
+            {/* keyed by scope: switching to a session in another worktree re-targets the panel */}
+            {id === 'files' && <FilesPanel key={scope.id} project={scope} />}
+            {id === 'terminal' && <TerminalPanel key={scope.id} project={scope} visible={activePanel === 'terminal'} />}
             {id === 'apps' && <AppsPanel project={project} />}
-            {id === 'git' && <GitPanel project={project} visible={activePanel === 'git'} />}
+            {id === 'git' && <GitPanel key={scope.id} project={scope} visible={activePanel === 'git'} />}
+            {id === 'desktop' && <DesktopPanel visible={activePanel === 'desktop'} />}
           </div>
         ) : null,
       )}

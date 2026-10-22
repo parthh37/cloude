@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { Tunnel } from '../../../shared/protocol.js';
+import { config } from '../config.js';
 import { newId } from '../crypto.js';
 import { now } from '../db.js';
 import { hub } from '../hub.js';
@@ -28,6 +29,7 @@ class TunnelManager {
 
   /** Start (or reuse) a tunnel and wait until its public URL is known. */
   async open(port: number, timeoutMs = 30_000): Promise<Tunnel> {
+    if (config.reservedPorts.has(port)) throw new HttpError(400, `Port ${port} belongs to Cloude and can't be tunnelled`);
     const existing = [...this.tunnels.values()].find((t) => t.port === port && t.status !== 'stopped' && t.status !== 'error');
     if (existing) return this.waitForUrl(existing, timeoutMs);
 

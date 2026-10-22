@@ -48,3 +48,19 @@ Self-hosted web workbench that runs Claude Code (via `@anthropic-ai/claude-agent
 - Global element styles stay inside `@layer base`; unlayered rules beat every Tailwind v4 utility.
 - Charts (`components/hud.tsx`) colour models by fixed slot via `modelSlot()` (validated `--series-N` palette), never by rank. Layout grids need `grid-cols-1` so panels can shrink on phones.
 - Pages render inside `<Shell>` (rail + annunciator status bar + ⌘K palette); the workspace uses `<Shell bare>`.
+
+## Workbench extensions (worktrees, board, CLIs, memory, compression, desktop)
+
+- Feature tables use `ensureSchema(name, sql)` from `server/src/schema.ts` (named migrations), not the numbered list in `db.ts`. Parallel branches would collide on numbers.
+- Feature settings live in `ext_settings` (`extSettings`, key `workbench`), not `AppSettings`.
+- Worktrees live at `<project>/.cloude/worktrees/<id>` on branch `cloude/<id>`. `.cloude/` is excluded via `.git/info/exclude`. Because worktrees sit inside the project, project-relative cwd/safeJoin code works unchanged.
+- Files/Git/Terminal routes take a **scope id**: `<projectId>` or `<projectId>~<worktreeId>` (`resolveScope`). The web passes `scopedProject(project, session)` to those panels. Never use `projects.require(req.params.id)` in those routes.
+- A worktree session's services are named `<name>@<worktreeId>` and run from the worktree (`createCloudeMcp(project, sessionId, worktree)`).
+- Removing a worktree must never lose work: `worktrees.remove` snapshots uncommitted changes, aborts on any git error (`porcelain` throws, no `rmSync` fallback), keeps unmerged branches, stops dev services and terminals inside it, and refuses while a deployment or published folder is served from it. Merge refuses when untracked files exist (they're usually uncommitted new source).
+- Claude transcripts are stored per cwd, so a session's resume breaks if its worktree directory disappears. Session-owned worktrees are therefore reset to base after a merge (`resetToBase`), not removed. Merge and remove refuse while the owning session is working.
+- Never resolve `${VAR}` in MCP configs server-side: the SDK puts MCP config on Claude's argv, and Claude Code expands `${VAR}` itself from its env (verified). Put stdio-server secrets in `env`, not `args`.
+- `config.reservedPorts` (Cloude's port, the desktop VNC port) is enforced by the preview proxy (`portTarget`) and tunnels.
+- Modules that react to sessions/terminals subscribe to `bus` (`server/src/bus.ts`) instead of importing each other.
+- The `workbench` MCP server's read-only and Cloude-state tools are in `WORKBENCH_AUTO_TOOLS`. `desktop_launch` and `board_start_card` stay out of that list (they run commands / spawn agents).
+- Compression is a PostToolUse hook returning `updatedToolOutput`. Anything it drops must stay recoverable (`.cloude/outputs/`).
+- The desktop exports `DISPLAY` by setting `process.env.DISPLAY` while running (`buildEnv` copies process env). VNC listens on localhost only and is in `config.reservedPorts`. The browser reaches it only via `/ws/desktop`.

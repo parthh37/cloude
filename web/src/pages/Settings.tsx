@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { AppSettings, EffortLevel, PermissionMode, SecretEntry, SystemStatus } from '../../../shared/protocol';
 import { ClaudeConnect, ClaudeStatusBanner } from '../components/ClaudeConnect';
 import { Badge, Button, Field, Input, Select, Textarea, Toggle } from '../components/ui';
+import { AgentClisSection, McpCatalog, WorkbenchSection } from '../components/WorkbenchSettings';
 import { api, ApiError, q } from '../lib/api';
 import { DEFAULT_MODELS, MODE_LABEL, bytes, timeAgo } from '../lib/format';
 import { toast, useStore } from '../lib/store';
@@ -226,6 +227,7 @@ function Defaults() {
           </span>
           <Toggle checked={s.enablePlaywright} onChange={(v) => up('enablePlaywright', v)} label="Browser testing" />
         </div>
+        <McpCatalog value={mcpText} onChange={setMcpText} />
         <Field label="Extra MCP servers (JSON)" hint='Same shape as .mcp.json "mcpServers", e.g. { "github": { "type": "http", "url": "https://…" } }'>
           <Textarea rows={6} value={mcpText} onChange={(e) => setMcpText(e.target.value)} className="mt-3 font-mono text-[12.5px]" spellCheck={false} />
         </Field>
@@ -329,6 +331,8 @@ export function SettingsPage() {
         <PageHeader title="Settings" subtitle="Claude account, session defaults, secrets and this server. Sign-in security lives in Security." />
         <ClaudeAccount status={status} onChange={refresh} />
         <Defaults />
+        <WorkbenchSection />
+        <AgentClisSection />
         <Secrets />
         <Appearance />
         <Server status={status} />

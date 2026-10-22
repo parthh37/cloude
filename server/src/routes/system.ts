@@ -32,6 +32,12 @@ async function toolchains() {
     ['claude', 'claude'],
     ['cloudflared', 'cloudflared'],
     ['mise', 'mise'],
+    ['dotnet', 'dotnet'],
+    ['clang', 'clang'],
+    ['gcc', 'gcc'],
+    ['cmake', 'cmake'],
+    ['playwright', 'playwright-mcp'],
+    ['desktop', 'x11vnc', '-version'],
   ];
   const entries = await Promise.all(checks.map(async ([name, bin, arg]) => [name, await toolVersion(bin, arg)] as const));
   toolchainCache = { at: Date.now(), value: Object.fromEntries(entries) };

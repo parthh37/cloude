@@ -2,12 +2,70 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import clsx from 'clsx';
-import { Plus, Sparkles, SquareTerminal, X } from 'lucide-react';
+import { Bot, ChevronDown, Plus, Sparkles, SquareTerminal, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import type { Project, TerminalInfo } from '../../../shared/protocol';
 import { Button, Empty } from '../components/ui';
 import { api, ApiError } from '../lib/api';
 import { toast } from '../lib/store';
+import { loadClis, useWorkbench } from '../lib/workbench';
+
+/** Launch any installed agent CLI (Codex, Gemini, Aider, Ollama, custom…) in a new terminal. */
+function AgentMenu({ onLaunch }: { onLaunch: (command: string, title: string) => void }) {
+  const clis = useWorkbench((s) => s.clis);
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState({ top: 0, right: 0 });
+  useEffect(() => {
+    if (open && !clis) void loadClis().catch(() => {});
+  }, [open, clis]);
+  const installed = (clis ?? []).filter((c) => c.installed && c.id !== 'claude');
+  return (
+    <div className="relative shrink-0">
+      <Button
+        ref={btn}
+        size="sm"
+        variant="ghost"
+        icon={<Bot className="size-3.5" />}
+        aria-expanded={open}
+        onClick={() => {
+          // The tab strip scrolls horizontally, so the menu is fixed-positioned to escape its clipping.
+          const r = btn.current?.getBoundingClientRect();
+          if (r) setPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+          setOpen(!open);
+        }}
+      >
+        Agents <ChevronDown className="size-3" />
+      </Button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div style={pos} className="fixed z-20 w-64 rounded-xl border border-line bg-surface p-1 shadow-cloud">
+            {!clis && <p className="px-2.5 py-2 text-sm text-ink-3">Loading…</p>}
+            {clis && installed.length === 0 && <p className="px-2.5 py-2 text-sm text-ink-3">No other agent CLIs installed yet.</p>}
+            {installed.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => {
+                  setOpen(false);
+                  onLaunch(c.command, c.name);
+                }}
+                className="block w-full rounded-lg px-2.5 py-1.5 text-left hover:bg-surface-2"
+              >
+                <span className="block text-sm font-medium">{c.name}</span>
+                <span className="block truncate font-mono text-[11px] text-ink-3">{c.command}</span>
+              </button>
+            ))}
+            <Link to="/settings#agents" className="block rounded-lg px-2.5 py-1.5 text-[13px] text-sky hover:bg-surface-2">
+              Install or add agents…
+            </Link>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 const THEME = {
   background: '#0f141c',
@@ -35,7 +93,7 @@ const THEME = {
 
 const isTouch = typeof window !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
-function TermView({ info, active }: { info: TerminalInfo; active: boolean }) {
+export function TermView({ info, active }: { info: TerminalInfo; active: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -220,6 +278,7 @@ export function TerminalPanel({ project, visible }: { project: Project; visible:
         <Button size="sm" variant="ghost" icon={<Sparkles className="size-3.5" />} onClick={() => create('claude', 'Claude CLI')} title="Interactive Claude Code CLI">
           Claude CLI
         </Button>
+        <AgentMenu onLaunch={(command, title) => void create(command, title)} />
       </div>
       <div className="min-h-0 flex-1">
         {terms.length === 0 ? (

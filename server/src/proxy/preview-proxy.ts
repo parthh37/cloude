@@ -100,6 +100,11 @@ function routeTarget(label: string): Target {
   return { kind: 'port', port: r.port!, isPublic: r.isPublic };
 }
 
+/** Cloude's own ports (the API, the desktop's VNC) are never previewable, even by a logged-in user's browser. */
+function portTarget(port: number): Target {
+  return config.reservedPorts.has(port) ? { kind: 'missing', label: `p-${port}` } : { kind: 'port', port, isPublic: false };
+}
+
 export function resolvePreview(req: IncomingMessage): Resolved | null {
   const host = requestHost(req);
   const pd = config.previewDomain?.toLowerCase();
@@ -107,7 +112,7 @@ export function resolvePreview(req: IncomingMessage): Resolved | null {
   if (pd && host.endsWith('.' + pd)) {
     const label = host.slice(0, -(pd.length + 1));
     const m = /^p-(\d{2,5})$/.exec(label);
-    if (m) return { host, mode: 'subdomain', prefix: '', target: { kind: 'port', port: Number(m[1]), isPublic: false } };
+    if (m) return { host, mode: 'subdomain', prefix: '', target: portTarget(Number(m[1])) };
     if (label.includes('.')) return null;
     return { host, mode: 'subdomain', prefix: '', target: routeTarget(label) };
   }
@@ -125,7 +130,7 @@ export function resolvePreview(req: IncomingMessage): Resolved | null {
 
   const url = req.url ?? '/';
   let m = /^\/preview\/(\d{2,5})(?=\/|$|\?)/.exec(url);
-  if (m) return { host, mode: 'path', prefix: m[0], target: { kind: 'port', port: Number(m[1]), isPublic: false } };
+  if (m) return { host, mode: 'path', prefix: m[0], target: portTarget(Number(m[1])) };
   m = /^\/apps\/([a-z0-9-]+)(?=\/|$|\?)/.exec(url);
   if (m) return { host, mode: 'path', prefix: m[0], target: routeTarget(m[1]!) };
   return null;
