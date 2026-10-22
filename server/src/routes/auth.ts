@@ -7,7 +7,7 @@ import { audit, listSecurityEvents, seenBefore, type RequestContext } from '../a
 import { authenticationOptions, expectedOrigins, passkeys, registrationOptions, verifyAuthentication, verifyRegistration } from '../auth/passkeys.js';
 import { beginAttempt, clearFailures, lockedFor, recordFailure, undoAttempt } from '../auth/throttle.js';
 import { hashRecoveryCode, newRecoveryCodes, newTotpSecret, otpauthUrl, verifyTotp } from '../auth/totp.js';
-import { clearSessionCookie, createSession, ctxOf, listDeviceSessions, revokeOtherSessions, revokeSession } from '../auth.js';
+import { clearSessionCookie, createSession, ctxOf, listDeviceSessions, passwordProblem, revokeOtherSessions, revokeSession } from '../auth.js';
 import { config } from '../config.js';
 import { decrypt, encrypt, hashPassword, needsRehash, randomToken, verifyPassword } from '../crypto.js';
 import { db, now, tx } from '../db.js';
@@ -30,7 +30,6 @@ const userById = (id: string) => db.prepare('SELECT * FROM users WHERE id = ?').
 let dummyHash: Promise<string> | null = null;
 const dummy = () => (dummyHash ??= hashPassword(randomToken()));
 
-const MIN_PASSWORD = 10;
 const MFA_TICKET_TTL = 5 * 60_000;
 const MFA_MAX_ATTEMPTS = 5;
 
@@ -301,9 +300,8 @@ export function registerAuthRoutes(app: FastifyInstance) {
 
   app.put<{ Body: { currentPassword?: string; newPassword?: string } }>('/api/auth/password', async (req) => {
     const next = String(req.body?.newPassword ?? '');
-    if (next.length < MIN_PASSWORD) throw new HttpError(400, `Use at least ${MIN_PASSWORD} characters`);
-    if (next.length > 1024) throw new HttpError(400, 'That password is too long');
-    if (next.toLowerCase() === req.user!.username.toLowerCase()) throw new HttpError(400, "Don't use your username as the password");
+    const problem = passwordProblem(next, req.user!.username);
+    if (problem) throw new HttpError(400, problem);
     const row = await reauth(req, req.body?.currentPassword);
     db.prepare('UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?').run(await hashPassword(next), now(), row.id);
     const signedOut = revokeOtherSessions(row.id, req.authSid);

@@ -56,26 +56,30 @@ No domain? Use `203.0.113.7.sslip.io`. Wildcard DNS works out of the box.
 
 ```bash
 git clone <this repo> cloude && cd cloude
-sudo ./deploy/install.sh cloude.example.com you@example.com
+sudo ./deploy/install.sh cloude.example.com you@example.com   # or no arguments to use <ip>.sslip.io
 ```
 
-The installer sets up Docker, a firewall, and `.env` with a generated admin password, then starts Cloude and Caddy. To do it by hand:
+The installer sets up Docker and a firewall, starts Cloude and Caddy, and prints a **setup link**. Everything after that happens in the browser.
+
+### First-run setup (in the browser)
+
+Open the link (`https://cloude.example.com/setup#code=…`) and the wizard walks you through:
+
+1. **Account.** Create the username and password you'll sign in with. The link carries a one-time setup code, so only someone who can see the install output can claim the server.
+2. **Claude.** Click **Sign in with Claude** to use a Pro/Max subscription: approve on claude.com and paste back the code it shows. Or paste an Anthropic API key.
+3. **Workspace.** Pick the default model and permission mode, and optionally add your Git name/email and a GitHub token.
+4. **Finish.** Review the address and preview mode, and turn on notifications.
+
+Lost the link? It's in `docker compose logs cloude`, and the code is also saved as `setup-token.txt` in Cloude's data directory. To install by hand:
 
 ```bash
-cp .env.example .env    # set CLOUDE_DOMAIN, CLOUDE_ADMIN_PASSWORD, ACME_EMAIL
+cp .env.example .env    # set CLOUDE_DOMAIN, ACME_EMAIL, CLOUDE_SETUP_TOKEN
 docker compose up -d --build
 ```
 
-Then open `https://cloude.example.com`, sign in, and connect Claude (next section).
+For scripted installs, set `CLOUDE_ADMIN_PASSWORD` to create the account up front. The wizard then starts at the Claude step after you sign in.
 
-### Connect your Claude account
-
-Open **Settings → Claude account** and choose one of these:
-
-- **Claude subscription (Pro/Max):** open any project's **Terminal**, run `claude setup-token`, sign in through the link it prints, and paste the token into Settings.
-- **API key:** paste an Anthropic API key.
-
-Credentials are encrypted at rest (AES-256-GCM) and injected into sessions as environment variables.
+Claude credentials can be changed later in **Settings → Claude account**. They're encrypted at rest (AES-256-GCM) and injected into sessions as environment variables.
 
 ## Using it
 
@@ -117,11 +121,13 @@ Cloude gives whoever logs in full control of the server. Treat the admin passwor
 
 ```bash
 npm install
-npm run dev -w server     # API on :8787 (prints the admin password on first run)
+npm run dev -w server     # API on :8787 (prints the setup code on first run)
 npm run dev -w web        # UI on :5173, proxies /api and /ws to :8787
 ```
 
-On macOS, your `claude` login lives in the Keychain, which the SDK's bundled binary can't read. Either set `CLOUDE_CLAUDE_PATH=$(which claude)` (after `claude login`), or add a token or API key in Settings.
+Open `http://localhost:5173/setup` and paste the setup code from the server output.
+
+On macOS, your `claude` login lives in the Keychain, which the SDK's bundled binary can't read. Use **Sign in with Claude** in the wizard or Settings, or set `CLOUDE_CLAUDE_PATH=$(which claude)` (after `claude login`).
 
 To try subdomain previews locally (browsers resolve `*.localhost` to loopback):
 
@@ -135,7 +141,8 @@ CLOUDE_PUBLIC_URL=http://cloude.localhost:8787 CLOUDE_PREVIEW_DOMAIN=cloude.loca
 |---|---|---|
 | `CLOUDE_PUBLIC_URL` | `http://localhost:$PORT` | External URL of the web app |
 | `CLOUDE_PREVIEW_DOMAIN` | unset | Wildcard base for `p-<port>.` / `<app>.` hosts. When unset, uses `/preview/<port>/` paths |
-| `CLOUDE_ADMIN_USER` / `CLOUDE_ADMIN_PASSWORD` | `admin` / generated | First-run login. With `CLOUDE_RESET_ADMIN_PASSWORD=true`, resets a forgotten password on boot and signs out every device |
+| `CLOUDE_SETUP_TOKEN` | generated | One-time code that claims a fresh server in the setup wizard |
+| `CLOUDE_ADMIN_USER` / `CLOUDE_ADMIN_PASSWORD` | `admin` / unset | Create the account from env instead of the wizard. With `CLOUDE_RESET_ADMIN_PASSWORD=true`, resets a forgotten password on boot and signs out every device |
 | `CLOUDE_RESET_ADMIN_2FA` | unset | `true` removes the admin's authenticator, passkeys and recovery codes on boot (last resort if all are lost). Unset it afterwards |
 | `CLOUDE_DATA_DIR` | `~/.cloude` | Database, secret key, workspaces |
 | `CLOUDE_WORKSPACES_DIR` | `$DATA/workspaces` | Where new projects are created |
@@ -158,11 +165,13 @@ server/src/
   services/                 process manager, ports, routes, Cloudflare tunnels
   proxy/preview-proxy.ts    host-based preview/app proxy + auth handoff
   terminal/terminals.ts     persistent PTYs
+  setup.ts                  first-run claim (setup code) and wizard state
+  claude-login.ts           "Sign in with Claude": drives `claude setup-token` in a PTY
   routes/                   REST API
 web/src/
   components/               shell (rail, annunciator, ⌘K palette), HUD panels and charts
   workspace/                chat timeline, tool cards, approvals, files, terminal, apps, git
-  pages/                    login, ops, usage, monitor, security, workspace, settings
+  pages/                    setup wizard, login, ops, usage, monitor, security, workspace, settings
 deploy/                     Caddyfile, entrypoint, install script
 ```
 

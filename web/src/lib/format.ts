@@ -33,6 +33,14 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   error: 'Error',
 };
 
+/** Models offered as the default for new sessions. */
+export const DEFAULT_MODELS = [
+  { value: 'claude-opus-5-5', label: 'Opus 5.5' },
+  { value: 'claude-fable-5-1', label: 'Fable 5.1' },
+  { value: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
+  { value: 'claude-haiku-5-5', label: 'Haiku 5.5' },
+];
+
 export const MODE_LABEL: Record<PermissionMode, { label: string; hint: string }> = {
   default: { label: 'Ask first', hint: 'Approve edits and commands in the browser' },
   acceptEdits: { label: 'Auto-edit', hint: 'File edits apply automatically; commands still ask' },

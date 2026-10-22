@@ -11,6 +11,7 @@ import type {
   ServiceState,
   Session,
   SessionEvent,
+  SetupStatus,
   SystemStatus,
   Tunnel,
   UsageLive,
@@ -44,6 +45,7 @@ export interface MetricsState {
 interface State {
   user: AuthUser | null;
   authChecked: boolean;
+  setup: SetupStatus | null;
   status: SystemStatus | null;
   projects: Project[];
   sessions: Record<string, Session>;
@@ -66,6 +68,7 @@ interface State {
 const initialState = (): State => ({
   user: null,
   authChecked: false,
+  setup: null,
   status: null,
   projects: [],
   sessions: {},

@@ -1,9 +1,10 @@
-import { CheckCircle2, KeyRound, Moon, Sun, SunMoon, Trash2, TriangleAlert } from 'lucide-react';
+import { Moon, Sun, SunMoon, Trash2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { AppSettings, EffortLevel, PermissionMode, SecretEntry, SystemStatus } from '../../../shared/protocol';
+import { ClaudeConnect, ClaudeStatusBanner } from '../components/ClaudeConnect';
 import { Badge, Button, Field, Input, Select, Textarea, Toggle } from '../components/ui';
 import { api, ApiError, q } from '../lib/api';
-import { MODE_LABEL, bytes, timeAgo } from '../lib/format';
+import { DEFAULT_MODELS, MODE_LABEL, bytes, timeAgo } from '../lib/format';
 import { toast, useStore } from '../lib/store';
 import { themePref, setThemePref, type ThemePref } from '../lib/theme';
 import { PageHeader, Panel } from '../components/hud';
@@ -51,75 +52,21 @@ function Appearance() {
 }
 
 function ClaudeAccount({ status, onChange }: { status: SystemStatus | null; onChange: () => void }) {
-  const [kind, setKind] = useState<'CLAUDE_CODE_OAUTH_TOKEN' | 'ANTHROPIC_API_KEY'>('CLAUDE_CODE_OAUTH_TOKEN');
-  const [value, setValue] = useState('');
-  const [busy, setBusy] = useState(false);
-  const auth = status?.claudeAuth;
-  const sourceLabel = { api_key: 'Anthropic API key', oauth_token: 'Claude subscription token', cli_login: 'Claude CLI login on the server', none: '' };
-
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      await api.put('/api/secrets', { key: kind, value: value.trim() });
-      setValue('');
-      toast('success', 'Claude credentials saved', 'New sessions will use them. Running sessions pick them up after they restart.');
-      onChange();
-    } catch (e) {
-      toast('error', 'Could not save', err(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <Section
       id="claude"
       title="Claude account"
-      description="Sessions run Claude Code on this server with these credentials. Keys are encrypted at rest and never shown again."
+      description="Sessions run Claude Code on this server with these credentials. Running sessions pick up a change after they restart."
     >
-      <div className={`mb-4 flex items-center gap-2 rounded-md px-3 py-2 text-sm ${auth?.configured ? 'bg-ok-soft text-ok' : 'bg-break-soft text-break-ink'}`}>
-        {auth?.configured ? <CheckCircle2 className="size-4" /> : <TriangleAlert className="size-4" />}
-        {auth?.configured ? `Connected with a ${sourceLabel[auth.source]}` : 'Not connected yet'}
+      <div className="mb-4">
+        <ClaudeStatusBanner auth={status?.claudeAuth} />
       </div>
-      <form onSubmit={save} className="space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          {(
-            [
-              ['CLAUDE_CODE_OAUTH_TOKEN', 'Claude subscription', 'Pro / Max plan'],
-              ['ANTHROPIC_API_KEY', 'API key', 'Pay as you go'],
-            ] as const
-          ).map(([k, label, sub]) => (
-            <button
-              type="button"
-              key={k}
-              onClick={() => setKind(k)}
-              className={`rounded-md border px-3 py-2.5 text-left ${kind === k ? 'border-sky bg-sky-soft' : 'border-line hover:border-line-strong'}`}
-            >
-              <span className="block text-sm font-medium">{label}</span>
-              <span className="block text-xs text-ink-3">{sub}</span>
-            </button>
-          ))}
-        </div>
-        <Field
-          label={kind === 'ANTHROPIC_API_KEY' ? 'Anthropic API key' : 'Subscription token'}
-          hint={
-            kind === 'ANTHROPIC_API_KEY' ? (
-              'Create one in the Claude Console under API keys.'
-            ) : (
-              <>
-                Open any project's Terminal, run <code className="font-mono">claude setup-token</code>, follow the link to sign in, and paste the token it
-                prints here.
-              </>
-            )
-          }
-        >
-          <Input type="password" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === 'ANTHROPIC_API_KEY' ? 'sk-ant-…' : 'sk-ant-oat…'} />
-        </Field>
-        <Button type="submit" variant="primary" disabled={!value.trim()} busy={busy} icon={<KeyRound className="size-4" />}>
-          Save credentials
-        </Button>
-      </form>
+      <ClaudeConnect
+        onConnected={() => {
+          toast('success', 'Claude connected', 'New sessions will use these credentials.');
+          onChange();
+        }}
+      />
     </Section>
   );
 }
@@ -239,10 +186,11 @@ function Defaults() {
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Model">
             <Select value={s.defaultModel} onChange={(e) => up('defaultModel', e.target.value)} className="w-full">
-              <option value="claude-opus-5-5">Opus 5.5</option>
-              <option value="claude-fable-5-1">Fable 5.1</option>
-              <option value="claude-sonnet-5-5">Sonnet 5.5</option>
-              <option value="claude-haiku-5-5">Haiku 5.5</option>
+              {DEFAULT_MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label="Permissions" hint={MODE_LABEL[s.defaultPermissionMode]?.hint}>

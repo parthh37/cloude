@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthMethod, AuthUser, DeviceSession } from '../../shared/protocol.js';
@@ -23,7 +21,11 @@ const DAY = 24 * 60 * 60_000;
 /** Don't write last_seen_at on every request. */
 const TOUCH_EVERY_MS = 60_000;
 
-/** Create the first admin on boot. Password from env, else generated and logged once. */
+/**
+ * Create the first admin on boot from CLOUDE_ADMIN_PASSWORD (scripted installs).
+ * Without it, the server stays unclaimed and the browser setup wizard creates
+ * the account instead — see setup.ts.
+ */
 export async function ensureAdmin() {
   const count = (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
   if (count > 0) {
@@ -52,24 +54,31 @@ export async function ensureAdmin() {
     }
     return;
   }
-  const password = config.adminPassword ?? randomToken(12);
+  if (!config.adminPassword) return;
   db.prepare('INSERT INTO users (id, username, password_hash, created_at, password_changed_at) VALUES (?, ?, ?, ?, ?)').run(
     newId(),
     config.adminUser,
-    await hashPassword(password),
+    await hashPassword(config.adminPassword),
     now(),
     now(),
   );
-  if (!config.adminPassword) {
-    const file = path.join(config.dataDir, 'initial-admin-password.txt');
-    fs.writeFileSync(file, `${config.adminUser}\n${password}\n`, { mode: 0o600 });
-    console.log('\n' + '='.repeat(64));
-    console.log(` Cloude admin account created`);
-    console.log(`   username: ${config.adminUser}`);
-    console.log(`   password: ${password}`);
-    console.log(`   (also saved to ${file} — change it in Security)`);
-    console.log('='.repeat(64) + '\n');
-  }
+}
+
+/**
+ * Why `password` is unacceptable for the admin account, or null if it's fine.
+ * Shown verbatim to the user, so phrase it as advice.
+ *
+ * Applies to the account created in the setup wizard and to password changes.
+ * Remember what this account can do: whoever has it is effectively root on
+ * this server (sudo, the Docker socket, every secret), and the login page is
+ * on the public internet — throttled per IP and per account (auth/throttle.ts).
+ */
+export function passwordProblem(password: string, username: string): string | null {
+  // TODO(you): decide the admin password policy (5-10 lines).
+  if (password.length < 10) return 'Use at least 10 characters';
+  if (password.length > 1024) return 'That password is too long';
+  if (password.toLowerCase() === username.toLowerCase()) return "Don't use your username as the password";
+  return null;
 }
 
 export function parseCookies(header: string | undefined): Record<string, string> {
@@ -292,6 +301,8 @@ const PUBLIC_API = new Set([
   '/api/health',
   '/api/preview-auth',
   '/api/tls-ask',
+  '/api/setup',
+  '/api/setup/admin',
 ]);
 
 function contentSecurityPolicy(): string {

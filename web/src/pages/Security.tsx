@@ -463,6 +463,7 @@ const EVENT_TEXT: Record<SecurityEventType, { label: string; tone: 'ok' | 'bad' 
   recovery_code_used: { label: 'Recovery code used', tone: 'break' },
   passkey_added: { label: 'Passkey added', tone: 'break' },
   passkey_removed: { label: 'Passkey removed', tone: 'break' },
+  account_created: { label: 'Account created in setup', tone: 'break' },
 };
 
 function eventDetail(e: SecurityEvent): string | null {

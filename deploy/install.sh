@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Install Cloude on a fresh Ubuntu/Debian server.
 #
+#   sudo ./deploy/install.sh                                  # no domain: uses <server-ip>.sslip.io
 #   sudo ./deploy/install.sh cloude.example.com you@example.com
 #
 # - installs Docker if missing
 # - opens only SSH/HTTP/HTTPS in the firewall (apps Claude starts listen on the
 #   host network, so without a firewall a dev server on :3000 would be public)
-# - writes .env with a generated admin password
-# - builds and starts the stack
+# - writes .env with a one-time setup code
+# - builds and starts the stack, then prints a link to the setup wizard, where
+#   you create your account and connect Claude in the browser
 set -euo pipefail
 
 DOMAIN="${1:-}"
@@ -38,22 +40,36 @@ else
 fi
 
 if [ ! -f .env ]; then
-  password=$(openssl rand -base64 18 | tr -d '/+=')
   cat > .env <<EOF
 CLOUDE_DOMAIN=${DOMAIN}
-CLOUDE_ADMIN_PASSWORD=${password}
 ACME_EMAIL=${EMAIL}
+# One-time code for the browser setup wizard. Useless once the account exists.
+CLOUDE_SETUP_TOKEN=$(openssl rand -hex 16)
 EOF
   chmod 600 .env
-  created_password=$password
 fi
+# Re-runs go by .env (the domain may have been edited by hand since).
+DOMAIN=$(sed -n 's/^CLOUDE_DOMAIN=//p' .env | tail -1)
+setup_code=$(sed -n 's/^CLOUDE_SETUP_TOKEN=//p' .env | tail -1)
 
 echo "==> Building and starting Cloude (first build takes a few minutes)"
 docker compose up -d --build
 
+echo "==> Waiting for Cloude to start"
+for _ in $(seq 1 60); do
+  curl -fsS http://127.0.0.1:8787/api/health >/dev/null 2>&1 && break
+  sleep 2
+done
+
 echo
-echo "Cloude is starting at: https://${DOMAIN}"
 echo "Make sure DNS has both:  ${DOMAIN}  and  *.${DOMAIN}  ->  this server"
-if [ -n "${created_password:-}" ]; then
-  echo "Sign in as: admin / ${created_password}   (stored in .env — change it in Settings)"
+if [ -n "${setup_code}" ] && curl -fsS http://127.0.0.1:8787/api/setup 2>/dev/null | grep -q '"needsAdmin":true'; then
+  echo
+  echo "Open this link to finish setting up Cloude in your browser:"
+  echo
+  echo "    https://${DOMAIN}/setup#code=${setup_code}"
+  echo
+  echo "(The first visit can take a few seconds while the HTTPS certificate is issued.)"
+else
+  echo "Cloude is running at: https://${DOMAIN}"
 fi

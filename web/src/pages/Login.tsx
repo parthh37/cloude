@@ -18,6 +18,7 @@ const isCancel = (e: unknown) => e instanceof Error && (e.name === 'NotAllowedEr
 
 export function Login() {
   const user = useStore((s) => s.user);
+  const needsAdmin = useStore((s) => s.setup?.needsAdmin);
   const [params] = useSearchParams();
   const next = params.get('next') || '/';
   const [step, setStep] = useState<Step>({ kind: 'password' });
@@ -35,6 +36,7 @@ export function Login() {
     if (step.kind === 'mfa') codeRef.current?.focus();
   }, [step]);
 
+  if (needsAdmin) return <Navigate to="/setup" replace />;
   if (user) {
     // /api/* "next" targets (preview hand-off) are server routes, not SPA routes.
     if (next.startsWith('/api/')) window.location.href = next;
@@ -237,7 +239,8 @@ export function Login() {
         </div>
 
         <p className="mt-5 text-[12px] leading-relaxed text-ink-3">
-          First run? The admin password is in the server log, or in <code className="font-mono">initial-admin-password.txt</code> in Cloude's data directory.
+          Forgot your password? Set <code className="font-mono">CLOUDE_ADMIN_PASSWORD</code> and <code className="font-mono">CLOUDE_RESET_ADMIN_PASSWORD=true</code>{' '}
+          on the server and restart Cloude.
         </p>
       </div>
     </div>

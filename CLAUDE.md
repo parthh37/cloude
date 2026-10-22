@@ -21,6 +21,7 @@ Self-hosted web workbench that runs Claude Code (via `@anthropic-ai/claude-agent
 - Routing a session to a non-Anthropic provider must strip `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` (`providerEnv()`), so credentials never reach a third-party gateway.
 - `agent/guard.ts` is a PreToolUse hook and applies in all permission modes, including bypass.
 - Preview hosts are untrusted. Never let Cloude cookies reach them (see `stripCloudeCookies`), and keep `isAllowedOrigin` on every state-changing request and WS upgrade.
+- A fresh server is claimed in the browser (`/setup`) with a one-time setup code (`setup.ts`). Never exempt "local" requests from the code: behind Caddy every request arrives from loopback. `claimAdmin` stays synchronous so the "no users yet" check and the INSERT can't interleave.
 - Events are persisted (`session_events`) and replayed by seq. Stream deltas and tool progress are live-only (`t: 'live'`).
 - Views that watch many sessions (board, dashboard, session list) never subscribe to streams. They read `Session.activity`, a one-line summary built by `agent/activity.ts` and broadcast at most ~1/s per session, and `pending`, which is broadcast on change plus a `pending_all` snapshot on every WS connect. Render them with `components/SessionLive.tsx`.
 

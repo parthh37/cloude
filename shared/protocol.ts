@@ -264,7 +264,8 @@ export type SecurityEventType =
   | 'passkey_added'
   | 'passkey_removed'
   | 'passkey_login'
-  | 'reauth_failure';
+  | 'reauth_failure'
+  | 'account_created'; // the setup wizard claimed the server
 
 export interface SecurityEvent {
   id: number;
@@ -399,6 +400,22 @@ export interface SystemStatus {
   toolchains: Record<string, string | null>;
   disk: { total: number; free: number } | null;
   activeSessions: number;
+}
+
+/** GET /api/setup (public): drives the first-run wizard. */
+export interface SetupStatus {
+  /** No account exists yet: the server is waiting to be claimed with its setup code. */
+  needsAdmin: boolean;
+  /** The first-run wizard has been finished. Until then, signing in lands on /setup. */
+  completed: boolean;
+}
+
+export type ClaudeCredentialKind = 'CLAUDE_CODE_OAUTH_TOKEN' | 'ANTHROPIC_API_KEY';
+
+/** POST /api/claude/login: a `claude setup-token` run waiting for the code from claude.com. */
+export interface ClaudeLoginStart {
+  id: string;
+  url: string;
 }
 
 export interface SecretEntry {
