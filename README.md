@@ -146,3 +146,7 @@ web/src/
   pages/                    login, projects, workspace, settings
 deploy/                     Caddyfile, entrypoint, install script
 ```
+
+## License
+
+[MIT](LICENSE)

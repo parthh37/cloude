@@ -1,6 +1,7 @@
 {
   "name": "cloude",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "Self-hosted, web-operated Claude Code workbench: multi-session agents, terminals, previews, build/test/deploy.",
   "type": "module",
@@ -19,5 +20,9 @@
   },
   "allowScripts": {
     "esbuild@0.28.2": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/parthh37/cloude.git"
   }
 }
