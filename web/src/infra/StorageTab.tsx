@@ -156,7 +156,7 @@ export function StorageTab() {
       <Card
         title={
           <span className="flex items-center gap-2">
-            <HardDrive className="size-5 text-dawn" /> Storage cleaner
+            <HardDrive className="size-5 text-ink-2" /> Storage cleaner
           </span>
         }
         description="Frees disk and memory automatically once work is done. It only removes what this Cloude install created or what is safe to rebuild — never your source code, databases, secrets or deployments."

@@ -234,7 +234,7 @@ function SandboxRow({ s, projectName, sessionTitle, onChange }: { s: Sandbox; pr
         <span className="font-mono text-sm font-semibold">{s.name}</span>
         {projectName && <span className="text-xs text-ink-3">{projectName}</span>}
         <Badge>{s.image}</Badge>
-        {s.isolation !== 'container' && <Badge tone="dawn">{ISOLATION_LABEL[s.isolation]}</Badge>}
+        {s.isolation !== 'container' && <Badge>{ISOLATION_LABEL[s.isolation]}</Badge>}
         {s.mount !== 'copy' && <Badge tone={s.mount === 'rw' ? 'break' : 'neutral'}>{s.mount === 'none' ? 'empty' : `live ${s.mount}`}</Badge>}
         {s.network === 'isolated' && <Badge>no network</Badge>}
         {s.pinned && <Badge tone="sky">pinned</Badge>}
@@ -368,7 +368,7 @@ export function SandboxesTab() {
       <Card
         title={
           <span className="flex items-center gap-2">
-            <Boxes className="size-5 text-dawn" /> Sandboxes
+            <Boxes className="size-5 text-ink-2" /> Sandboxes
           </span>
         }
         description="Disposable machines Claude controls completely — root access, any package, databases, systemd, Docker — without touching this server. Each gets its own name, a free host port per published port, and a private project network, so nothing ever collides."

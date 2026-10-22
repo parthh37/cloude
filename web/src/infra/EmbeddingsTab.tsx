@@ -163,7 +163,7 @@ export function EmbeddingsTab() {
       <Card
         title={
           <span className="flex items-center gap-2">
-            <BrainCircuit className="size-5 text-dawn" /> Embeddings
+            <BrainCircuit className="size-5 text-ink-2" /> Embeddings
           </span>
         }
         description="Vector embeddings power semantic code search for Claude. In automatic mode Cloude picks a free model — preferring ones that run on this server so your code never leaves it."

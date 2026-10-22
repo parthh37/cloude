@@ -6,7 +6,7 @@ export const err = (e: unknown) => (e instanceof ApiError ? e.message : e instan
 
 export function Card({ title, description, actions, children, className }: { title?: ReactNode; description?: ReactNode; actions?: ReactNode; children?: ReactNode; className?: string }) {
   return (
-    <section className={clsx('rounded-2xl border border-line bg-surface p-4 shadow-cloud sm:p-5', className)}>
+    <section className={clsx('rounded-lg border border-line bg-surface p-4 shadow-cloud sm:p-5', className)}>
       {(title || actions) && (
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -49,7 +49,7 @@ export function Meter({ used, total, warn }: { used: number; total: number; warn
   const pct = total ? Math.min(100, Math.round((used / total) * 100)) : 0;
   return (
     <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-2" role="meter" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-      <div className={clsx('h-full rounded-full transition-[width]', warn ? 'bg-break' : pct > 85 ? 'bg-dawn' : 'bg-sky')} style={{ width: `${pct}%` }} />
+      <div className={clsx('h-full rounded-full transition-[width]', warn || pct > 85 ? 'bg-break' : 'bg-sky')} style={{ width: `${pct}%` }} />
     </div>
   );
 }

@@ -294,7 +294,7 @@ export function RoutingTab() {
       <Card
         title={
           <span className="flex items-center gap-2">
-            <Waypoints className="size-5 text-dawn" /> Model routing
+            <Waypoints className="size-5 text-ink-2" /> Model routing
           </span>
         }
         description="Choose which provider and model handle each kind of task. Each Claude session is routed when its process starts; the decision is logged below."
@@ -399,7 +399,7 @@ export function RoutingTab() {
             return (
               <li key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-line px-3 py-2.5">
                 <span className="font-medium">{p.name}</span>
-                <Badge tone={p.builtin ? 'dawn' : 'neutral'}>{KIND_LABEL[p.kind]}</Badge>
+                <Badge>{KIND_LABEL[p.kind]}</Badge>
                 {p.baseUrl && <span className="min-w-0 truncate font-mono text-xs text-ink-3">{p.baseUrl}</span>}
                 {used > 0 && <Badge tone="sky">{used} route{used > 1 ? 's' : ''}</Badge>}
                 <span className="ml-auto flex items-center gap-1">
