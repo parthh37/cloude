@@ -4,14 +4,16 @@ import type { FastifyInstance } from 'fastify';
 import mime from 'mime-types';
 import * as files from '../files.js';
 import * as git from '../git.js';
-import { projects } from '../projects.js';
 import { terminals } from '../terminal/terminals.js';
 import { safeJoin } from '../util/paths.js';
+import { resolveScope } from '../worktrees.js';
 
 type P = { Params: { id: string } };
 
 export function registerWorkspaceRoutes(app: FastifyInstance) {
-  const root = (id: string) => projects.require(id).path;
+  // `:id` is a scope: a project id, or `<projectId>~<worktreeId>` for one of its worktrees.
+  const root = (id: string) => resolveScope(id).root;
+  const pid = (id: string) => resolveScope(id).project.id;
 
   // ---- files ----
   app.get<P & { Querystring: { path?: string; hidden?: string } }>('/api/projects/:id/files', async (req) => ({
@@ -83,17 +85,27 @@ export function registerWorkspaceRoutes(app: FastifyInstance) {
   app.post<P & { Body: { message: string; all?: boolean } }>('/api/projects/:id/git/commit', async (req) => ({
     output: await git.commit(root(req.params.id), req.body.message, req.body.all ?? true),
   }));
-  app.post<P>('/api/projects/:id/git/push', async (req) => ({ output: await git.push(root(req.params.id), req.params.id) }));
-  app.post<P>('/api/projects/:id/git/pull', async (req) => ({ output: await git.pull(root(req.params.id), req.params.id) }));
+  app.post<P>('/api/projects/:id/git/push', async (req) => ({ output: await git.push(root(req.params.id), pid(req.params.id)) }));
+  app.post<P>('/api/projects/:id/git/pull', async (req) => ({ output: await git.pull(root(req.params.id), pid(req.params.id)) }));
   app.post<P & { Body: { branch: string; create?: boolean } }>('/api/projects/:id/git/checkout', async (req) => ({
     output: await git.checkout(root(req.params.id), req.body.branch, !!req.body.create),
   }));
 
   // ---- terminals ----
-  app.get<P>('/api/projects/:id/terminals', async (req) => ({ terminals: terminals.list(req.params.id) }));
+  // The project scope lists every terminal (board runs included); a worktree scope narrows to that worktree and opens new ones there.
+  app.get<P>('/api/projects/:id/terminals', async (req) => {
+    const { project, worktree } = resolveScope(req.params.id);
+    const inside = (cwd: string, dir: string) => cwd === dir || cwd.startsWith(dir + path.sep);
+    return { terminals: terminals.list(project.id).filter((t) => !worktree || inside(t.cwd, worktree.path)) };
+  });
   app.post<P & { Body: { cwd?: string; command?: string; title?: string; cols?: number; rows?: number } }>(
     '/api/projects/:id/terminals',
-    async (req) => ({ terminal: terminals.create(req.params.id, req.body ?? {}) }),
+    async (req) => {
+      const { project, worktree } = resolveScope(req.params.id);
+      const body = req.body ?? {};
+      const cwd = worktree ? path.posix.join(worktree.relPath, body.cwd ?? '.') : body.cwd;
+      return { terminal: terminals.create(project.id, { ...body, cwd }) };
+    },
   );
   app.patch<{ Params: { tid: string }; Body: { title: string } }>('/api/terminals/:tid', async (req) => ({
     terminal: terminals.rename(req.params.tid, req.body.title),

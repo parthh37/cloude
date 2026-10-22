@@ -1,6 +1,7 @@
+import path from 'node:path';
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import type { Project } from '../../../shared/protocol.js';
+import type { Project, Worktree } from '../../../shared/protocol.js';
 import { hub } from '../hub.js';
 import { listListeningPorts } from '../services/ports.js';
 import { previewUrlForPort, routes } from '../services/routes-store.js';
@@ -47,7 +48,11 @@ function serviceSummary(projectId: string, name: string, logLines = 40) {
  * In-process MCP server giving Claude control over Cloude's hosting layer for
  * the session's project. Created per session so every tool is scoped to it.
  */
-export function createCloudeMcp(project: Project, sessionId: string): McpSdkServerConfigWithInstance {
+export function createCloudeMcp(project: Project, sessionId: string, worktree: Worktree | null = null): McpSdkServerConfigWithInstance {
+  // Worktree sessions get their own service namespace ("web@fix-login") and run
+  // services from their worktree, so parallel sessions never restart each other's servers.
+  const svcName = (name: string) => (worktree && !name.endsWith(`@${worktree.id}`) ? `${name}@${worktree.id}` : name);
+  const svcCwd = (cwd?: string) => (worktree ? path.posix.join(worktree.relPath, cwd ?? '.') : (cwd ?? '.'));
   const server = createSdkMcpServer({
     name: CLOUDE_MCP_NAME,
     version: '1.0.0',
@@ -74,13 +79,14 @@ export function createCloudeMcp(project: Project, sessionId: string): McpSdkServ
           restart: z.boolean().optional().describe('Restart if already running (default true)'),
         },
         async (args) => {
+          const name = svcName(args.name);
           const def = services.upsert({
             projectId: project.id,
-            name: args.name,
-            kind: services.byName(project.id, args.name)?.kind ?? 'dev',
+            name,
+            kind: services.byName(project.id, name)?.kind ?? 'dev',
             strategy: 'process',
             command: args.command,
-            cwd: args.cwd ?? '.',
+            cwd: svcCwd(args.cwd),
             port: args.port ?? null,
             env: args.env ?? {},
             autoRestart: false,
@@ -88,18 +94,20 @@ export function createCloudeMcp(project: Project, sessionId: string): McpSdkServ
           if (args.restart === false) await services.start(def.id);
           else await services.restart(def.id);
           await sleep(4000);
-          return text(serviceSummary(project.id, args.name));
+          return text(serviceSummary(project.id, name));
         },
       ),
 
-      tool('stop_service', 'Stop a running service.', { name: z.string() }, async ({ name }) => {
+      tool('stop_service', 'Stop a running service.', { name: z.string() }, async (args) => {
+        const name = services.byName(project.id, svcName(args.name)) ? svcName(args.name) : args.name;
         const def = services.byName(project.id, name);
         if (!def) return text(`No service named "${name}"`, true);
         await services.stop(def.id);
         return text(`Stopped ${name}`);
       }),
 
-      tool('restart_service', 'Restart a service (e.g. after changing config).', { name: z.string() }, async ({ name }) => {
+      tool('restart_service', 'Restart a service (e.g. after changing config).', { name: z.string() }, async (args) => {
+        const name = services.byName(project.id, svcName(args.name)) ? svcName(args.name) : args.name;
         const def = services.byName(project.id, name);
         if (!def) return text(`No service named "${name}"`, true);
         await services.restart(def.id);
@@ -111,7 +119,8 @@ export function createCloudeMcp(project: Project, sessionId: string): McpSdkServ
         'service_logs',
         'Read recent stdout/stderr of a service.',
         { name: z.string(), lines: z.number().int().min(1).max(2000).optional() },
-        async ({ name, lines }) => {
+        async ({ name: raw, lines }) => {
+          const name = services.byName(project.id, svcName(raw)) ? svcName(raw) : raw;
           const def = services.byName(project.id, name);
           if (!def) return text(`No service named "${name}"`, true);
           const out = services
@@ -160,7 +169,7 @@ export function createCloudeMcp(project: Project, sessionId: string): McpSdkServ
             hostname: args.hostname ?? null,
             targetType: args.staticDir ? 'static' : 'port',
             port: args.port ?? null,
-            staticDir: args.staticDir ?? null,
+            staticDir: args.staticDir ? svcCwd(args.staticDir) : null,
             isPublic: args.public,
             projectId: project.id,
             projectRoot: project.path,
@@ -186,13 +195,14 @@ export function createCloudeMcp(project: Project, sessionId: string): McpSdkServ
           hostname: z.string().optional(),
         },
         async (args) => {
+          const name = svcName(args.name);
           const def = services.upsert({
             projectId: project.id,
-            name: args.name,
+            name,
             kind: 'deploy',
             strategy: args.strategy,
             command: args.command,
-            cwd: args.cwd ?? '.',
+            cwd: svcCwd(args.cwd),
             port: args.port ?? null,
             env: args.env ?? {},
             autoRestart: args.strategy !== 'static',
@@ -211,10 +221,10 @@ export function createCloudeMcp(project: Project, sessionId: string): McpSdkServ
               if (st.status === 'crashed') break;
               if (st.status === 'running') port = st.port;
             }
-            if (!port) return text({ error: 'Service did not start listening on a port', ...serviceSummary(project.id, args.name, 80) }, true);
+            if (!port) return text({ error: 'Service did not start listening on a port', ...serviceSummary(project.id, name, 80) }, true);
             routes.upsert({ label, hostname: args.hostname, targetType: 'port', port, isPublic: args.public, projectId: project.id });
           }
-          return text(serviceSummary(project.id, args.name));
+          return text(serviceSummary(project.id, name));
         },
       ),
 

@@ -34,8 +34,14 @@ Cloude runs Claude Code agents on a server you control and gives you a web workb
 | **Build & test** | Web terminal, file editor, Git panel. Claude starts dev servers as *services* (with logs) and verifies UIs itself in a headless browser via Playwright. |
 | **Preview** | Every port gets a private, login-protected URL: `https://p-3000.your.domain`. HMR WebSockets work. |
 | **Publish & deploy** | Make an app public at `https://myapp.your.domain` or a custom domain. Deploy as a process, a Dockerfile, or a static folder, with auto-restart that survives reboots. Instant `trycloudflare.com` tunnels are also available. |
-| **Dependencies** | The image ships Node/pnpm/bun, Python/uv, Go, Rust, Java, Docker CLI, gh, mise, and Chromium. Claude has `sudo apt-get` for anything else. |
+| **Dependencies** | The image ships Node/pnpm/bun, Python/uv, Go, Rust, Java, .NET 8/9/10, C/C++ (gcc, clang/LLVM, cmake, ninja, gdb, valgrind), Docker CLI, gh, mise, and Chromium + Firefox + WebKit. Claude has `sudo apt-get` for anything else. |
 | **Safety rails** | Publishing, deploying, and tunnels *always* ask, even in full-access mode. A server guard blocks agents from touching Cloude's own database and keys. Previewed apps can never see your Cloude session. |
+| **Conflict-free parallel work** | Each session can run in its own git worktree and branch. Its services are namespaced, and Files/Git/Terminal follow it there. **Review & land** shows the diff against base, syncs base in (conflicts stay in the worktree for Claude to fix), then merges, squashes, or opens a PR. |
+| **Kanban board** | Plan with Claude (it breaks a goal into cards), then run cards in parallel, each with its own agent and worktree. Cards move to Review when the agent finishes and to Done when merged. |
+| **Other agent CLIs** | Codex, Gemini, Qwen Code, OpenCode, Copilot, Aider, Cursor, Goose, and local Llama/Qwen through Ollama, plus any CLI you add. Open them in a terminal or assign them to board cards. |
+| **Memory & token compression** | Agents save durable facts to project memory. New sessions get only a compact index. Noisy command output (installs, builds, test runs) is compressed before it reaches Claude, typically 80–95% smaller, with the full log kept on disk. |
+| **Virtual desktop** | A Linux desktop in the browser (noVNC) for building and testing GUI apps: Electron, Tauri, Avalonia/.NET, Qt, GTK. Claude drives it with screenshot/click/type tools (computer use). |
+| **MCP catalog** | One-click MCP servers (GitHub, Context7, Microsoft Learn, Chrome DevTools, databases, Sentry, Notion, Stripe, …). Tokens come from encrypted secrets. |
 
 ## Deploy (Docker, recommended)
 
@@ -88,6 +94,24 @@ Permission modes, set per session from the header pill:
 | Auto | A classifier approves routine actions, asks on risky ones |
 | Full access | No prompts, *except* publish / deploy / tunnel |
 
+## Parallel work, end to end
+
+1. **Plan:** open **Board → Plan with Claude** and describe a goal. Claude reads the code and adds one card per independently mergeable change, each with acceptance criteria.
+2. **Run:** press **Start** on as many cards as you like. Each card gets its own branch `cloude/<card>` in `.cloude/worktrees/<card>` (git-excluded) and its own agent: a Claude session, or Codex, Gemini, Aider, or another CLI running headless. Agents install dependencies and start servers in their own worktree. Ports are allocated per service, so they don't collide.
+3. **Review:** when an agent stops, its card moves to **Review**. **Review & land** shows every change against the base, including files the agent never committed.
+4. **Land:** **Sync** merges the base into the branch. If that conflicts, the conflict stays in the worktree and **Ask Claude to resolve** hands it back. **Merge** fast-forwards, makes a merge commit, or squashes, and never leaves a half-merged main checkout. **Push & open PR** uses `gh`. The card moves to **Done**. A Claude session keeps its worktree, reset to the new base, so its conversation continues and you can give it the next task. CLI and manual worktrees can be removed on merge. Repo hooks don't block Cloude's merges (`--no-verify`). Merging or removing waits until the agent stops working.
+
+New sessions are isolated by default. Turn off **Isolated worktree** under *New session* to work directly in the main checkout. Removing a worktree never loses work: uncommitted changes are committed to its branch first, and unmerged branches are kept.
+
+## Memory and token compression
+
+- **Memory** (*Board / Memory* in the sidebar) holds facts agents saved with `memory_save`, plus your own entries. Memories are scoped to a project or global. Each session's system prompt carries only the index (name + one line), and details are fetched on demand.
+- **Compression** (*Settings → Workbench*) rewrites Bash output before the model sees it. It strips ANSI codes, resolves progress bars, drops noise, and collapses repeats. Very long logs are cut to head + tail + error lines. Whenever lines are dropped, the full output is saved to `.cloude/outputs/<id>.log` and the marker tells Claude where to find it. Levels: off / balanced / aggressive. Each chat header shows the tokens saved.
+
+## Virtual desktop
+
+Open the **Desktop** panel and press *Start*. The server runs `Xvfb` + `fluxbox` + `x11vnc` (VNC bound to localhost only) and streams it through Cloude's authenticated WebSocket, so nothing new is exposed. While it runs, `DISPLAY` is exported to sessions, terminals, and services, so GUI apps appear on it. Claude uses `desktop_screenshot`, `desktop_click`, `desktop_type`, `desktop_key`, `desktop_scroll`, `desktop_drag`, and `desktop_launch`. Launching an app asks first, because it runs a command. You can watch or take control, and paste your clipboard in.
+
 ## Security
 
 Cloude gives whoever logs in full control of the server. Treat the admin password like a root password.
@@ -133,6 +157,15 @@ CLOUDE_PUBLIC_URL=http://cloude.localhost:8787 CLOUDE_PREVIEW_DOMAIN=cloude.loca
 ```
 shared/protocol.ts          types shared by server and web (REST + WebSocket contract)
 server/src/
+  worktrees.ts              per-session git worktrees: create, status, sync, merge/squash, PR, remove
+  board.ts                  Kanban cards that run agents and follow their sessions/terminals
+  agents/clis.ts            agent CLI registry (presets + custom), install, headless commands
+  memory.ts                 long-term memory store + the index injected into prompts
+  agent/compression.ts      PostToolUse hook that compresses Bash output for the model
+  agent/workbench.ts        workbench MCP tools (memory, board, desktop), prompt section, hooks
+  desktop.ts                virtual desktop (Xvfb/x11vnc) + WebSocket bridge + computer-use actions
+  mcp-catalog.ts            one-click MCP server presets
+  schema.ts                 named, order-independent migrations for feature tables
   agent/session.ts          Agent SDK runtime: sessions, streaming, permissions, resume
   agent/cloude-mcp.ts       MCP tools Claude uses to run, publish and deploy apps
   agent/guard.ts            PreToolUse server-protection hook

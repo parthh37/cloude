@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { EffortLevel, ImageAttachment, PermissionMode, PermissionResponse } from '../../../shared/protocol.js';
+import type { EffortLevel, ImageAttachment, Isolation, PermissionMode, PermissionResponse } from '../../../shared/protocol.js';
 import { KNOWN_MODELS, sessions } from '../agent/session.js';
 import { projects } from '../projects.js';
 import { services } from '../services/service-manager.js';
@@ -44,11 +44,21 @@ export function registerProjectAndSessionRoutes(app: FastifyInstance) {
 
   app.post<{
     Params: { id: string };
-    Body: { title?: string; model?: string; permissionMode?: PermissionMode; effort?: EffortLevel | null; message?: string };
+    Body: {
+      title?: string;
+      model?: string;
+      permissionMode?: PermissionMode;
+      effort?: EffortLevel | null;
+      message?: string;
+      isolation?: Isolation;
+      branch?: string;
+      baseBranch?: string;
+    };
   }>('/api/projects/:id/sessions', async (req) => {
     const body = req.body ?? {};
     if (body.permissionMode && !PERMISSION_MODES.includes(body.permissionMode)) throw new HttpError(400, 'Invalid permission mode');
-    const s = sessions.create(req.params.id, body);
+    if (body.isolation && body.isolation !== 'shared' && body.isolation !== 'worktree') throw new HttpError(400, 'Invalid isolation');
+    const s = await sessions.create(req.params.id, body);
     if (body.message?.trim()) s.send(body.message);
     return { session: s.toJSON() };
   });

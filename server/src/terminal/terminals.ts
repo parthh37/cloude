@@ -1,6 +1,7 @@
 import type { WebSocket } from 'ws';
 import * as pty from '@lydell/node-pty';
 import type { TerminalInfo } from '../../../shared/protocol.js';
+import { bus } from '../bus.js';
 import { config } from '../config.js';
 import { newId } from '../crypto.js';
 import { now } from '../db.js';
@@ -29,10 +30,13 @@ class TerminalManager {
     return [...this.terms.values()].map((t) => t.info).filter((t) => !projectId || t.projectId === projectId);
   }
 
-  create(projectId: string, opts: { cwd?: string; command?: string; title?: string; cols?: number; rows?: number }): TerminalInfo {
+  create(
+    projectId: string,
+    opts: { cwd?: string; command?: string; title?: string; cols?: number; rows?: number; env?: Record<string, string> },
+  ): TerminalInfo {
     const project = projects.require(projectId);
     const cwd = safeJoin(project.path, opts.cwd ?? '.');
-    const env = buildEnv(projectId, { TERM: 'xterm-256color', COLORTERM: 'truecolor' });
+    const env = buildEnv(projectId, { TERM: 'xterm-256color', COLORTERM: 'truecolor', ...opts.env });
     const args = opts.command ? ['-lc', opts.command] : ['-l'];
     const proc = pty.spawn(config.shell, args, { name: 'xterm-256color', cwd, env, cols: opts.cols ?? 120, rows: opts.rows ?? 32 });
     const info: TerminalInfo = {
@@ -49,8 +53,9 @@ class TerminalManager {
       if (term.buffer.length > SCROLLBACK_BYTES) term.buffer = term.buffer.slice(-SCROLLBACK_BYTES);
       for (const ws of term.sockets) if (ws.readyState === 1) ws.send(data);
     });
-    proc.onExit(({ exitCode }) => {
+    proc.onExit(({ exitCode, signal }) => {
       info.alive = false;
+      bus.emit('terminal:exit', { id: info.id, projectId, exitCode, signal: signal ?? 0 });
       const msg = `\r\n\x1b[2m[process exited with code ${exitCode}]\x1b[0m\r\n`;
       term.buffer += msg;
       for (const ws of term.sockets) if (ws.readyState === 1) ws.send(msg);

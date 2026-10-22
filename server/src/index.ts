@@ -15,6 +15,8 @@ import { handlePreviewRequest, handlePreviewUpgrade, registerPreviewRoutes } fro
 import { registerHostingRoutes } from './routes/hosting.js';
 import { registerProjectAndSessionRoutes } from './routes/sessions.js';
 import { registerSystemRoutes } from './routes/system.js';
+import { registerWorkbenchRoutes } from './routes/workbench.js';
+import { desktop, workbenchSettings } from './desktop.js';
 import { registerWorkspaceRoutes } from './routes/workspace.js';
 import { services } from './services/service-manager.js';
 import { tunnels } from './services/tunnels.js';
@@ -53,6 +55,7 @@ registerPreviewRoutes(app);
 registerProjectAndSessionRoutes(app);
 registerWorkspaceRoutes(app);
 registerHostingRoutes(app);
+registerWorkbenchRoutes(app);
 
 // ---- web UI (single-page app) ----
 const hasWeb = fs.existsSync(path.join(config.webDist, 'index.html'));
@@ -110,6 +113,7 @@ app.server.on('upgrade', (req, socket, head) => {
     const term = /^\/ws\/terminal\/([\w-]+)$/.exec(pathname);
     if (pathname === '/ws') handleEventsSocket(ws);
     else if (term) terminals.attach(term[1]!, ws);
+    else if (pathname === '/ws/desktop') desktop.attach(ws);
     else ws.close(4404, 'unknown endpoint');
   });
 });
@@ -128,6 +132,7 @@ console.log(`     previews:       ${config.previewDomain ? `https://p-<port>.${c
 console.log(`     workspaces:     ${config.workspacesDir}\n`);
 
 void services.bootstrap();
+if (workbenchSettings().desktop.autoStart && desktop.missing().length === 0) void desktop.start().catch((e) => console.error('[desktop]', e.message));
 
 let shuttingDown = false;
 async function shutdown(signal: string) {
@@ -137,6 +142,7 @@ async function shutdown(signal: string) {
   sessions.stopAll();
   terminals.killAll();
   tunnels.closeAll();
+  await desktop.stop().catch(() => {});
   await Promise.race([services.stopAll(), new Promise((r) => setTimeout(r, 8000))]);
   await app.close().catch(() => {});
   process.exit(0);

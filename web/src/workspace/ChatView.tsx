@@ -13,6 +13,7 @@ import { Composer } from './Composer';
 import { Markdown } from './Markdown';
 import { PermissionCard } from './PermissionCard';
 import { ToolCard } from './ToolCard';
+import { WorktreeChip } from './WorktreeChip';
 
 const MODELS = [
   { value: 'claude-opus-5-5', label: 'Opus 5.5' },
@@ -264,7 +265,7 @@ function SessionControls({ session }: { session: Session }) {
   );
 }
 
-function Header({ session, onOpenSessions }: { session: Session; onOpenSessions: () => void }) {
+function Header({ session, project, onOpenSessions }: { session: Session; project: Project; onOpenSessions: () => void }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(session.title);
   const [menu, setMenu] = useState(false);
@@ -307,6 +308,7 @@ function Header({ session, onOpenSessions }: { session: Session; onOpenSessions:
             {!session.alive && session.started && session.status === 'idle' && ' · resumes on your next message'}
           </p>
         </div>
+        <WorktreeChip session={session} project={project} />
         <SessionControls session={session} />
         <div className="relative">
           <IconButton label="Session options" onClick={() => setMenu(!menu)}>
@@ -343,7 +345,7 @@ export function ChatView({ session, project, onOpenSessions }: { session: Sessio
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Header session={session} onOpenSessions={onOpenSessions} />
+      <Header session={session} project={project} onOpenSessions={onOpenSessions} />
       <div
         ref={scroller}
         onScroll={(e) => {

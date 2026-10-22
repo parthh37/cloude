@@ -10,6 +10,9 @@ if [ -S /var/run/docker.sock ]; then
   usermod -aG "$(getent group "$gid" | cut -d: -f1)" cloude
 fi
 
+# The virtual desktop's X server (run as cloude) needs the socket dir; /tmp may be a fresh tmpfs.
+mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+
 # Volumes may be created by root on first run.
 chown cloude:cloude /data /home/cloude 2>/dev/null || true
 mkdir -p /data/workspaces && chown cloude:cloude /data/workspaces
