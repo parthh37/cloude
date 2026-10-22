@@ -331,6 +331,12 @@ function Server({ status }: { status: SystemStatus | null }) {
             </dd>
           </>
         )}
+        <dt className="text-ink-3">Control center</dt>
+        <dd>
+          <a href="/infra" className="text-sky underline">
+            Model routing, sandboxes, storage cleaner & embeddings →
+          </a>
+        </dd>
         <dt className="text-ink-3">Notifications</dt>
         <dd>
           {perm === 'granted' ? (

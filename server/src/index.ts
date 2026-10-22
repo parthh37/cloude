@@ -23,6 +23,7 @@ import { registerWorkspaceRoutes } from './routes/workspace.js';
 import { services } from './services/service-manager.js';
 import { tunnels } from './services/tunnels.js';
 import { terminals } from './terminal/terminals.js';
+import { registerInfra } from './infra/index.js';
 import { HttpError } from './util/paths.js';
 
 await ensureAdmin();
@@ -57,6 +58,7 @@ registerAuthRoutes(app);
 registerSystemRoutes(app);
 registerPreviewRoutes(app);
 registerProjectAndSessionRoutes(app);
+registerInfra(app); // sandboxes, storage cleaner, model routing, embeddings
 registerWorkspaceRoutes(app);
 registerHostingRoutes(app);
 

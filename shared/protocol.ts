@@ -1,5 +1,7 @@
 // Shared contract between the Cloude server and the web client.
 // Both sides import this file directly (no build step), so keep it type-only.
+// Sandboxes, storage cleaner, model routing and embeddings live in ./infra.ts.
+export type * from './infra.js';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto';
 export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';

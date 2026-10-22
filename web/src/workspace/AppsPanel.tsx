@@ -3,6 +3,7 @@ import { ExternalLink, Globe, Lock, Monitor, Play, Plus, RefreshCw, RotateCw, Sm
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ListeningPort, Project, ServiceState } from '../../../shared/protocol';
 import { Badge, Button, Dialog, Field, IconButton, Input, Select, StatusDot, Toggle } from '../components/ui';
+import { SandboxList } from '../infra/SandboxesTab';
 import { api, ApiError } from '../lib/api';
 import { timeAgo } from '../lib/format';
 import { toast, useStore } from '../lib/store';
@@ -333,6 +334,10 @@ export function AppsPanel({ project }: { project: Project }) {
               ))}
             </div>
           )}
+        </section>
+
+        <section>
+          <SandboxList projectId={project.id} compact />
         </section>
 
         <section>

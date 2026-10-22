@@ -32,6 +32,8 @@ Cloude runs Claude Code agents on a server you control and gives you a web workb
 | **Every Claude Code feature** | Built on the official Agent SDK with the full Claude Code preset: all built-in tools, subagents, skills, slash commands, `CLAUDE.md`, `.claude/settings.json`, project `.mcp.json`, plan mode, permission modes, model and effort switching, compaction, file checkpoints (rewind). There's also a one-click **Claude CLI** terminal for anything interactive. |
 | **Steer from anywhere** | Tool approvals with diffs, multiple-choice questions, plan review ("approve and auto-edit"), and MCP sign-in forms all appear as cards in the browser, with notifications when Claude needs you. |
 | **Build & test** | Web terminal, file editor, Git panel. Claude starts dev servers as *services* (with logs) and verifies UIs itself in a headless browser via Playwright. |
+| **Sandboxes** | Disposable machines Claude controls completely (root, any package, databases, systemd, Docker-in-Docker, other distros) for tests that need a real OS. Container isolation by default; gVisor, Sysbox full-OS and Kata microVMs light up when installed. Free host ports, private per-project networks and a private copy of the project, so nothing collides. |
+| **Control center** | `/infra`: pick the provider and model for each kind of task (Anthropic, Bedrock, Vertex, Foundry, any Anthropic-compatible gateway, Ollama), manage sandboxes, an automatic storage cleaner that frees space once work is done, and free embeddings that configure themselves for semantic code search. |
 | **Preview** | Every port gets a private, login-protected URL: `https://p-3000.your.domain`. HMR WebSockets work. |
 | **Publish & deploy** | Make an app public at `https://myapp.your.domain` or a custom domain. Deploy as a process, a Dockerfile, or a static folder, with auto-restart that survives reboots. Instant `trycloudflare.com` tunnels are also available. |
 | **Dependencies** | The image ships Node/pnpm/bun, Python/uv, Go, Rust, Java, Docker CLI, gh, mise, and Chromium. Claude has `sudo apt-get` for anything else. |
@@ -82,6 +84,8 @@ Credentials are encrypted at rest (AES-256-GCM) and injected into sessions as en
 3. Claude starts the app as a **service**. Open **Apps** to see logs and an inline preview with a phone/desktop toggle.
 4. When it's ready, say *"deploy this publicly as todo"*. You'll get an approval card, and after you approve it's live at `https://todo.your.domain`.
 
+The **control center** (`/infra`, linked from Settings → Server) holds the rest. *Model routing* maps task kinds to a provider and model; start a message with a tag like `#debug` or `#plan` to pick the route, or set it per session there. *Sandboxes* lists every machine Claude created, with a console, root shell, snapshots and preview links. The *Storage* cleaner stops idle sandboxes and reclaims finished ones, old snapshots and leftovers; host-wide Docker pruning and build artifacts are opt-in. *Embeddings* shows the free model that was picked automatically (Ollama if it's running, otherwise a small local model, so your code stays on the server).
+
 Permission modes, set per session from the header pill:
 
 | Mode | Behavior |
@@ -105,6 +109,7 @@ Cloude gives whoever logs in full control of the server. Treat the admin passwor
 - **Preview isolation:** previews run on sibling subdomains and are treated as untrusted. They never receive Cloude's cookies: access uses a signed, host-bound handoff token, and the proxy strips Cloude cookies before forwarding. The API rejects cross-origin writes and WebSocket upgrades. Without a wildcard domain, previews fall back to `/preview/<port>/` on Cloude's own origin. They're served with a CSP `sandbox` there so they can't reach the API, but that also means apps can't use cookies or `localStorage` in path mode.
 - **Proxy trust:** `X-Forwarded-*` headers are only honoured from loopback (Caddy), so clients can't spoof their IP past the login rate limit.
 - **Agent guard:** a `PreToolUse` hook (active in every permission mode) blocks writes to Cloude's data directory. Add your own command rules in `server/src/agent/guard.ts`.
+- **Sandboxes & routing:** sandbox tools run without prompts because they act inside disposable containers (never `--privileged`, `no-new-privileges`, CPU/memory/PID limits). The two ways back into the real project, a read-write live mount and copying files out, always ask, even in Full access. When a task routes to a non-Anthropic provider, your Anthropic API key and subscription token are removed from that session's environment.
 - **sudo:** enabled in the image so Claude can install system packages. Build with `--build-arg ENABLE_SUDO=false` to turn it off.
 - **Docker socket:** mounted so Claude can build and run containers, which is root-equivalent on the host. Remove the mount in `docker-compose.yml` if you don't need Docker deployments.
 
