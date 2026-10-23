@@ -12,6 +12,8 @@ const DEFAULTS: AppSettings = {
   enablePlaywright: true,
   mcpServers: {},
   idleTimeoutMinutes: 30,
+  autoCompact: true,
+  autoCompactWindow: null,
   budgetDailyUsd: null,
   budgetMonthlyUsd: null,
   budgetWarnPercent: 80,
@@ -28,6 +30,12 @@ function sanitize(patch: Partial<AppSettings>): Partial<AppSettings> {
   if ('budgetWarnPercent' in patch) out.budgetWarnPercent = Math.min(100, Math.max(1, Math.round(Number(patch.budgetWarnPercent) || 80)));
   if ('budgetEnforce' in patch) out.budgetEnforce = !!patch.budgetEnforce;
   if ('sessionIdleDays' in patch) out.sessionIdleDays = Math.min(30, Math.max(1, Math.round(Number(patch.sessionIdleDays) || 7)));
+  if ('autoCompact' in patch) out.autoCompact = patch.autoCompact !== false;
+  // Claude Code accepts a 100k–1M compaction window; empty means the model's own.
+  if ('autoCompactWindow' in patch) {
+    const n = Math.round(Number(patch.autoCompactWindow));
+    out.autoCompactWindow = patch.autoCompactWindow && n ? Math.min(1_000_000, Math.max(100_000, n)) : null;
+  }
   return out;
 }
 

@@ -34,6 +34,7 @@ export interface Session {
   started: boolean; // true once Claude has created its transcript (resume possible)
   alive: boolean; // whether a Claude process is currently attached
   activity: SessionActivity | null; // what Claude is doing right now (live only, null between turns)
+  context?: SessionContext | null; // how full Claude's context window is; null until the process has reported it
   archived: boolean;
   totalCostUsd: number;
   lastSeq: number;
@@ -54,6 +55,20 @@ export interface SessionActivity {
   detail?: string; // target: a path, a command, a subagent's current step
   tool?: string; // tool name, for 'tool' and 'agent'
   since: number; // when this step began (ms); clients derive elapsed time from it
+}
+
+/**
+ * Context-window fill as Claude Code itself measures it (`getContextUsage`), for
+ * the context meter. Refreshed at each turn's start and end, after a compaction,
+ * and every few seconds while Claude works; kept in memory only.
+ */
+export interface SessionContext {
+  tokens: number; // estimated tokens in the window right now
+  window: number; // the window they're measured against (the compaction window if one is set)
+  autoCompact: boolean; // whether Claude Code compacts by itself
+  compactAt: number | null; // auto-compaction starts at this many tokens (null when off)
+  model: string;
+  at: number; // when this was measured (ms)
 }
 
 export interface ImageAttachment {
@@ -194,6 +209,10 @@ export interface AppSettings {
   enablePlaywright: boolean;
   mcpServers: Record<string, unknown>; // extra MCP servers (stdio/http/sse configs)
   idleTimeoutMinutes: number;
+  /** Let Claude Code compact the conversation by itself when the context window fills. */
+  autoCompact: boolean;
+  /** Treat the context window as this many tokens (100k–1M), so compaction comes sooner. null = the model's own window. */
+  autoCompactWindow: number | null;
   /** Spend caps in USD (UTC day / UTC calendar month). null = no cap. */
   budgetDailyUsd: number | null;
   budgetMonthlyUsd: number | null;

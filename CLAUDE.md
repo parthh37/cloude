@@ -39,6 +39,7 @@ Self-hosted web workbench that runs Claude Code (via `@anthropic-ai/claude-agent
 - SDK `modelUsage` is a running total per process (a resumed process may start with the transcript's saved totals; `/clear` resets it). Book usage only through `recordTurn()` (delta vs. `sessions.usage_snapshot`, a drop = counter reset). Never sum `result` messages.
 - Budgets and charts are in UTC days/months.
 - Live metrics have two watch topics: `metrics` (cheap system sample, the status bar) and `processes` (per-process scan, Monitor page only).
+- Compaction is Claude Code's own; `agent/compaction.ts` only configures it (env beats `options.settings`, so a routing provider's `CLAUDE_CODE_AUTO_COMPACT_WINDOW` overrides the global window) and watches it. `Session.context` comes from `getContextUsage({ detail: 'summary' })` — never `'full'`, which calls the token-count API on every refresh (cost, and fails behind gateways). `session_events` are never compacted.
 
 ## Web gotchas
 
