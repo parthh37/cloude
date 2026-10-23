@@ -10,6 +10,7 @@ import { toast, useStore, type DraftBlock } from '../lib/store';
 import { buildTimeline, type TimelineItem } from '../lib/timeline';
 import { socket } from '../lib/ws';
 import { Composer } from './Composer';
+import { ContextMeter } from './ContextMeter';
 import { Markdown } from './Markdown';
 import { PermissionCard } from './PermissionCard';
 import { ToolCard } from './ToolCard';
@@ -308,6 +309,7 @@ function Header({ session, onOpenSessions }: { session: Session; onOpenSessions:
           </p>
         </div>
         <SessionControls session={session} />
+        <ContextMeter session={session} />
         <div className="relative">
           <IconButton label="Session options" onClick={() => setMenu(!menu)}>
             <MoreHorizontal className="size-[18px]" />

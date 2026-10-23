@@ -35,6 +35,7 @@ import { AsyncQueue } from '../util/async-queue.js';
 import { HttpError } from '../util/paths.js';
 import { ActivityTracker } from './activity.js';
 import { CLOUDE_READONLY_TOOLS, createCloudeMcp } from './cloude-mcp.js';
+import { CompactionWatcher, applyCompaction } from './compaction.js';
 import { guardHooks } from './guard.js';
 import { cloudeSystemPrompt } from './system-prompt.js';
 
@@ -134,6 +135,13 @@ export class AgentSession {
   );
   private activityTimer: NodeJS.Timeout | null = null;
   private activitySentAt = 0;
+  private compaction = new CompactionWatcher({
+    id: () => this.id,
+    query: () => this.q,
+    fail: (message) => this.record('error', { message }),
+    changed: () => this.activityChanged(),
+    settled: () => this.compactionSettled(),
+  });
   private disposed = false;
   private ownUuids = new Set<string>();
   private idleTimer: NodeJS.Timeout | null = null;
@@ -164,6 +172,7 @@ export class AgentSession {
       started: !!r.started,
       alive: this.alive,
       activity: this.activity.current,
+      context: this.compaction.context,
       archived: !!r.archived,
       totalCostUsd: r.total_cost_usd,
       lastSeq: r.last_seq,
@@ -342,6 +351,7 @@ export class AgentSession {
       },
     };
     applyInfra(options, this.row); // model routing, sandboxes, semantic search — see server/src/infra
+    applyCompaction(options); // after routing, so a provider's own compaction window still wins
 
     const q = query({ prompt: input, options });
     this.q = q;
@@ -403,6 +413,7 @@ export class AgentSession {
 
   private handle(msg: SDKMessage) {
     this.activity.observe(msg);
+    this.compaction.observe(msg);
     switch (msg.type) {
       case 'stream_event':
       case 'tool_progress':
@@ -510,8 +521,15 @@ export class AgentSession {
     const minutes = settings.get().idleTimeoutMinutes;
     if (!minutes || minutes <= 0) return;
     this.idleTimer = setTimeout(() => {
-      if (this.row.status === 'idle' && this.pending.size === 0) this.stop();
+      if (this.row.status === 'idle' && this.pending.size === 0 && !this.compaction.busy) this.stop();
     }, minutes * 60_000);
+  }
+
+  /** A compaction between turns has no `result` to end it: drop its activity line and re-arm the idle timer it held off. */
+  private compactionSettled() {
+    if (this.row.status !== 'idle') return;
+    this.activity.clear();
+    this.scheduleIdleShutdown();
   }
 
   // ---- permissions & questions ---------------------------------------------------

@@ -8,6 +8,7 @@ import { toast, useStore } from '../lib/store';
 import { themePref, setThemePref, type ThemePref } from '../lib/theme';
 import { PageHeader, Panel } from '../components/hud';
 import { Page, Shell } from '../components/Shell';
+import { CompactionFields } from '../components/CompactionSettings';
 
 const err = (e: unknown) => (e instanceof ApiError ? e.message : String(e));
 
@@ -267,6 +268,7 @@ function Defaults() {
           <Field label="Pause idle sessions after (minutes)" hint="Frees memory; the conversation resumes on your next message. 0 keeps them running.">
             <Input type="number" min={0} value={s.idleTimeoutMinutes} onChange={(e) => up('idleTimeoutMinutes', Number(e.target.value))} />
           </Field>
+          <CompactionFields s={s} up={up} />
         </div>
       </Section>
 

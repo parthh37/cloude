@@ -140,15 +140,25 @@ export function buildTimeline(events: SessionEvent[]): TimelineItem[] {
                 .join(' · '),
             });
             break;
-          case 'compact_boundary':
+          case 'compact_boundary': {
+            const m = d.compact_metadata ?? {};
+            const k = (n: number) => `${Math.round(n / 1000)}k`;
             items.push({
               kind: 'marker',
               key,
               tone: 'neutral',
-              label: `Conversation compacted (${d.compact_metadata?.trigger ?? 'auto'})`,
-              detail: d.compact_metadata?.pre_tokens ? `${Math.round(d.compact_metadata.pre_tokens / 1000)}k tokens summarized` : undefined,
+              label: m.trigger === 'manual' ? 'Conversation compacted' : 'Conversation compacted automatically',
+              detail:
+                [
+                  m.pre_tokens ? (m.post_tokens ? `${k(m.pre_tokens)} → ${k(m.post_tokens)} tokens` : `${k(m.pre_tokens)} tokens summarised`) : '',
+                  m.duration_ms ? `${Math.round(m.duration_ms / 1000)}s` : '',
+                  'Claude continues from a summary; the full history stays here',
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
             });
             break;
+          }
           case 'local_command_output':
             items.push({ kind: 'command_output', key, text: cleanCommandOutput(String(d.content ?? '')) });
             break;
